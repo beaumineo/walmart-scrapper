@@ -329,44 +329,56 @@ def collect_store_prices(
             engine="cooldown",
         )
 
-    # Subprocess wrapper keeps Playwright/curl away from uvicorn event loop issues.
-    # On Railway/Docker, prefer inline (WALMART_COLLECT_INLINE=1) so missing scripts
-    # or container process limits cannot break live pulls.
-    if os.environ.get("WALMART_COLLECT_INLINE") != "1":
-        script = Path(__file__).resolve().parents[1] / "scripts" / "run_price_pull.py"
-        if script.is_file():
-            try:
-                cmd = [sys.executable, str(script), str(store_id)]
-                if zip_code:
-                    cmd.extend(["--zip", str(zip_code)])
-                if force:
-                    cmd.append("--force")
-                proc = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=max(
-                        150,
-                        int(cfg.timeout_sec)
-                        * max(1, len(queries))
-                        * (cfg.max_retries + 1)
-                        + 60,
-                    ),
-                    env={**os.environ, "WALMART_COLLECT_INLINE": "1"},
-                )
-                lines = (proc.stdout or "").strip().splitlines()
-                payload = json.loads(lines[-1]) if lines else {}
-                products = [_dict_to_item(p) for p in (payload.get("products") or [])]
-                mode = payload.get("mode") or ("live" if products else "empty")
-                if mode == "blocked":
-                    _mark_live_blocked()
+    # Hosted (Railway) and Docker images: always collect in-process.
+    # Subprocess needs scripts/run_price_pull.py which may be absent in the image.
+    on_railway = bool(
+        os.environ.get("RAILWAY_ENVIRONMENT")
+        or os.environ.get("RAILWAY_PROJECT_ID")
+        or os.environ.get("RAILWAY_SERVICE_ID")
+    )
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_price_pull.py"
+    use_inline = (
+        os.environ.get("WALMART_COLLECT_INLINE", "").strip() == "1"
+        or on_railway
+        or not script.is_file()
+    )
+
+    if not use_inline:
+        try:
+            cmd = [sys.executable, str(script), str(store_id)]
+            if zip_code:
+                cmd.extend(["--zip", str(zip_code)])
+            if force:
+                cmd.append("--force")
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=max(
+                    150,
+                    int(cfg.timeout_sec)
+                    * max(1, len(queries))
+                    * (cfg.max_retries + 1)
+                    + 60,
+                ),
+                env={**os.environ, "WALMART_COLLECT_INLINE": "1"},
+            )
+            lines = (proc.stdout or "").strip().splitlines()
+            payload = json.loads(lines[-1]) if lines else {}
+            products = [_dict_to_item(p) for p in (payload.get("products") or [])]
+            mode = payload.get("mode") or ("live" if products else "empty")
+            if mode == "blocked":
+                _mark_live_blocked()
+            # If subprocess printed an error and no products, fall through to inline
+            notes = (payload.get("notes") or proc.stderr or "")[:400]
+            if products or payload.get("ok"):
                 pull = PricePull(
                     store_id=str(store_id),
                     zip=zip_code or payload.get("zip"),
                     ok=bool(payload.get("ok")),
                     mode=mode,
                     products=products,
-                    notes=payload.get("notes") or (proc.stderr or "")[:400],
+                    notes=notes,
                     proxy_used=bool(payload.get("proxy_used")),
                     attempts=int(payload.get("attempts") or 1),
                     scraped_at=payload.get("scraped_at") or _now(),
@@ -375,9 +387,26 @@ def collect_store_prices(
                 )
                 save_pull(pull)
                 return pull
-            except Exception:
-                # Fall through to in-process collection
-                pass
+            if "No such file" in notes or "can't open file" in notes:
+                pass  # fall through to inline
+            else:
+                pull = PricePull(
+                    store_id=str(store_id),
+                    zip=zip_code or payload.get("zip"),
+                    ok=False,
+                    mode=mode,
+                    products=[],
+                    notes=notes,
+                    proxy_used=bool(payload.get("proxy_used")),
+                    attempts=int(payload.get("attempts") or 1),
+                    scraped_at=payload.get("scraped_at") or _now(),
+                    queries=payload.get("queries") or queries,
+                    engine=str(payload.get("engine") or ""),
+                )
+                save_pull(pull)
+                return pull
+        except Exception:
+            pass
 
     return _collect_inline(store_id=store_id, zip_code=zip_code, queries=queries)
 

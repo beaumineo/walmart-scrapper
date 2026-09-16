@@ -88,7 +88,7 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "0.9.2",
+        "version": "0.9.3",
         "milestone": 3,
         "milestones_complete": [1, 2, 3],
         "proxy_count": len(cfg.proxies),
@@ -102,7 +102,14 @@ def health():
                 os.environ.get("RAILWAY_ENVIRONMENT")
                 or os.environ.get("RAILWAY_PROJECT_ID")
             ),
-            "collect_inline": os.environ.get("WALMART_COLLECT_INLINE", "") == "1",
+            "collect_inline": (
+                os.environ.get("WALMART_COLLECT_INLINE", "") == "1"
+                or bool(
+                    os.environ.get("RAILWAY_ENVIRONMENT")
+                    or os.environ.get("RAILWAY_PROJECT_ID")
+                )
+            ),
+            "build": "0.9.3-inline",
         },
     }
 
@@ -323,7 +330,7 @@ def api_deals(
     store_id: str = Query(...),
     radius_miles: float = Query(50, ge=1, le=100),
     min_discount_pct: float = Query(20, ge=0, le=95),
-    mode: str = Query("live", regex="^(auto|live)$"),
+    mode: str = Query("live", pattern="^(auto|live)$"),
 ):
     """
     In-store deal report for the selected Walmart store.

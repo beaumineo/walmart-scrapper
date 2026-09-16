@@ -16,4 +16,5 @@ COPY scripts ./scripts
 
 WORKDIR /app/app
 EXPOSE 8000
+# Shell form so Railway's $PORT is honored (often 8080)
 CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
