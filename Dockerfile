@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8000 \
     WALMART_COLLECT_INLINE=1
 
-COPY requirements.txt requirements-railway.txt ./
+COPY requirements.txt requirements-railway.txt BUILD.txt ./
 RUN pip install --no-cache-dir -r requirements-railway.txt
 
 COPY app ./app
