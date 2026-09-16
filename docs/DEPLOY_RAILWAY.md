@@ -25,15 +25,16 @@ WALMART_UC_ENABLED=0
 WALMART_ALLOW_BROWSER=0
 ```
 
+**Important:** after editing Variables, click **Apply changes** / **Deploy**.
+Typed-but-not-applied variables are invisible to the running app.
+
 Optional: keep `PROXIES` unset on Railway (Oxylabs is enough).
 
-## 3) Share with client
+Check that credentials loaded: open `/health` — you should see `"live_ready": true` and `"backends": {"oxylabs": true, ...}`.
 
-After deploy, Railway gives a public URL like:
+## 3) Public URL
 
-`https://your-service.up.railway.app`
-
-Open that URL — the UI is served from FastAPI (`/`).
+Settings → Networking → **Generate Domain** → open `https://….up.railway.app`
 
 ## 4) Optional: Vercel frontend later
 

@@ -80,20 +80,35 @@ def health():
         deal_thr = DealThresholds.from_env().to_dict()
     except Exception:
         pass
+    backends = {}
+    live_ready = False
+    try:
+        from client_collector import client_backends_status, client_live_ready
+
+        backends = client_backends_status(cfg)
+        live_ready = client_live_ready(cfg)
+    except Exception:
+        pass
     return {
         "ok": True,
         "zip_count": len(zips),
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "0.9.0",
+        "version": "0.9.2",
         "milestone": 3,
         "milestones_complete": [1, 2, 3],
         "proxy_count": len(cfg.proxies),
         "engine": cfg.collect_engine,
         "deal_thresholds": deal_thr,
+        "live_ready": live_ready,
+        "backends": backends,
         "deploy": {
             "vercel": bool(os.environ.get("VERCEL")),
+            "railway": bool(
+                os.environ.get("RAILWAY_ENVIRONMENT")
+                or os.environ.get("RAILWAY_PROJECT_ID")
+            ),
             "reliable_demo": True,
         },
     }
@@ -105,10 +120,27 @@ def api_backends():
     from client_collector import client_backends_status, client_live_ready, setup_required_message
 
     status = client_backends_status()
+    ready = client_live_ready()
+    hosted = bool(
+        os.environ.get("RAILWAY_ENVIRONMENT")
+        or os.environ.get("RAILWAY_PROJECT_ID")
+        or os.environ.get("VERCEL")
+    )
+    msg = None
+    if not ready:
+        msg = (
+            "Oxylabs is not active in this running service yet. "
+            "In Railway → Variables, click Apply changes / Deploy, "
+            "wait for the new deployment to finish, then refresh."
+            if hosted
+            else setup_required_message()
+        )
     return {
-        "ready": client_live_ready(),
+        "ready": ready,
         "backends": status,
-        "setup_message": None if client_live_ready() else setup_required_message(),
+        "setup_message": msg,
+        "hosted": hosted,
+        "allow_inline_configure": not hosted,
         "preferred": ["oxylabs", "scraperapi", "unlocker"],
     }
 
@@ -146,11 +178,21 @@ def _upsert_env(path: Path, updates: Dict[str, str]) -> None:
 @app.post("/api/backends/configure")
 def api_backends_configure(body: LiveBackendConfig):
     """
-    Save a commercial live backend into .env (local/dev).
-    Prefer Oxylabs for true store_id + delivery_zip localization.
+    Local/dev only: save a commercial backend into .env and process env.
+    On Railway/Vercel, set Variables in the host dashboard (this endpoint is blocked).
     """
     from config import ENV_PATH
     from client_collector import client_backends_status, client_live_ready
+
+    if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID") or os.environ.get("VERCEL"):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Do not paste API keys in the public UI on hosted deploys. "
+                "Set OXYLABS_USERNAME / OXYLABS_PASSWORD in Railway Variables, "
+                "then click Apply changes / Deploy."
+            ),
+        )
 
     updates: Dict[str, str] = {}
     if body.scraperapi_key and body.scraperapi_key.strip():
@@ -170,18 +212,21 @@ def api_backends_configure(body: LiveBackendConfig):
             "or brightdata_api_key+unlocker_zone",
         )
 
+    env_saved = False
     try:
         _upsert_env(ENV_PATH, updates)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not write .env: {e}") from e
+        env_saved = True
+    except Exception:
+        # Still apply in-process for this local session
+        pass
 
-    # Apply immediately in this process
     for k, v in updates.items():
         os.environ[k] = v
 
     return {
         "ok": True,
         "saved_keys": sorted(updates.keys()),
+        "env_file_saved": env_saved,
         "ready": client_live_ready(),
         "backends": client_backends_status(),
     }

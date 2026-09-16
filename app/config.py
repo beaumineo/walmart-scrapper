@@ -44,6 +44,17 @@ def writable_data_dir() -> Path:
 PULLS_DIR = writable_data_dir() / "pulls"
 
 
+def _env_clean(key: str, default: str = "") -> str:
+    """Read env var; strip whitespace and wrapping quotes (Railway paste quirks)."""
+    raw = os.environ.get(key, default)
+    if raw is None:
+        return ""
+    val = str(raw).strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+        val = val[1:-1].strip()
+    return val
+
+
 def _load_dotenv() -> None:
     if not ENV_PATH.exists():
         return
@@ -307,19 +318,15 @@ def get_collector_config() -> CollectorConfig:
         .lower()
         or "us",
         unlocker_proxy=unlocker_proxy,
-        scraperapi_key=(
-            os.environ.get("SCRAPERAPI_KEY") or os.environ.get("SCRAPER_API_KEY") or ""
-        ).strip(),
+        scraperapi_key=_env_clean("SCRAPERAPI_KEY") or _env_clean("SCRAPER_API_KEY"),
         scraperapi_ultra=os.environ.get("SCRAPERAPI_ULTRA", "1")
         .strip()
         .lower()
         in ("1", "true", "yes", "on"),
-        oxylabs_username=(
-            os.environ.get("OXYLABS_USERNAME") or os.environ.get("OXYLABS_USER") or ""
-        ).strip(),
-        oxylabs_password=(
-            os.environ.get("OXYLABS_PASSWORD") or os.environ.get("OXYLABS_PASS") or ""
-        ).strip(),
+        oxylabs_username=_env_clean("OXYLABS_USERNAME")
+        or _env_clean("OXYLABS_USER"),
+        oxylabs_password=_env_clean("OXYLABS_PASSWORD")
+        or _env_clean("OXYLABS_PASS"),
         uc_enabled=os.environ.get("WALMART_UC_ENABLED", "0")
         .strip()
         .lower()
