@@ -60,6 +60,7 @@ def index():
 @app.get("/health")
 def health():
     from config import get_collector_config
+    from client_collector import client_backends_status, client_live_ready
 
     zips = load_zips()
     store_count = 0
@@ -80,15 +81,7 @@ def health():
         deal_thr = DealThresholds.from_env().to_dict()
     except Exception:
         pass
-    backends = {}
-    live_ready = False
-    try:
-        from client_collector import client_backends_status, client_live_ready
-
-        backends = client_backends_status(cfg)
-        live_ready = client_live_ready(cfg)
-    except Exception:
-        pass
+    backends = client_backends_status(cfg)
     return {
         "ok": True,
         "zip_count": len(zips),
@@ -100,16 +93,16 @@ def health():
         "milestones_complete": [1, 2, 3],
         "proxy_count": len(cfg.proxies),
         "engine": cfg.collect_engine,
-        "deal_thresholds": deal_thr,
-        "live_ready": live_ready,
+        "live_ready": client_live_ready(cfg),
         "backends": backends,
+        "deal_thresholds": deal_thr,
         "deploy": {
             "vercel": bool(os.environ.get("VERCEL")),
             "railway": bool(
                 os.environ.get("RAILWAY_ENVIRONMENT")
                 or os.environ.get("RAILWAY_PROJECT_ID")
             ),
-            "reliable_demo": True,
+            "collect_inline": os.environ.get("WALMART_COLLECT_INLINE", "") == "1",
         },
     }
 
@@ -120,28 +113,18 @@ def api_backends():
     from client_collector import client_backends_status, client_live_ready, setup_required_message
 
     status = client_backends_status()
-    ready = client_live_ready()
     hosted = bool(
         os.environ.get("RAILWAY_ENVIRONMENT")
         or os.environ.get("RAILWAY_PROJECT_ID")
         or os.environ.get("VERCEL")
     )
-    msg = None
-    if not ready:
-        msg = (
-            "Oxylabs is not active in this running service yet. "
-            "In Railway → Variables, click Apply changes / Deploy, "
-            "wait for the new deployment to finish, then refresh."
-            if hosted
-            else setup_required_message()
-        )
     return {
-        "ready": ready,
+        "ready": client_live_ready(),
         "backends": status,
-        "setup_message": msg,
-        "hosted": hosted,
-        "allow_inline_configure": not hosted,
+        "setup_message": None if client_live_ready() else setup_required_message(),
         "preferred": ["oxylabs", "scraperapi", "unlocker"],
+        "hosted": hosted,
+        "allow_browser_config": not hosted,
     }
 
 
@@ -178,19 +161,18 @@ def _upsert_env(path: Path, updates: Dict[str, str]) -> None:
 @app.post("/api/backends/configure")
 def api_backends_configure(body: LiveBackendConfig):
     """
-    Local/dev only: save a commercial backend into .env and process env.
-    On Railway/Vercel, set Variables in the host dashboard (this endpoint is blocked).
+    Save a commercial live backend into .env (local/dev only).
+    On Railway, set Variables in the dashboard instead.
     """
     from config import ENV_PATH
     from client_collector import client_backends_status, client_live_ready
 
-    if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID") or os.environ.get("VERCEL"):
+    if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"):
         raise HTTPException(
-            status_code=403,
+            status_code=400,
             detail=(
-                "Do not paste API keys in the public UI on hosted deploys. "
-                "Set OXYLABS_USERNAME / OXYLABS_PASSWORD in Railway Variables, "
-                "then click Apply changes / Deploy."
+                "This host is Railway. Set OXYLABS_USERNAME and OXYLABS_PASSWORD "
+                "in the Variables tab (not in the browser), then redeploy."
             ),
         )
 
@@ -212,21 +194,18 @@ def api_backends_configure(body: LiveBackendConfig):
             "or brightdata_api_key+unlocker_zone",
         )
 
-    env_saved = False
     try:
         _upsert_env(ENV_PATH, updates)
-        env_saved = True
-    except Exception:
-        # Still apply in-process for this local session
-        pass
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not write .env: {e}") from e
 
+    # Apply immediately in this process
     for k, v in updates.items():
         os.environ[k] = v
 
     return {
         "ok": True,
         "saved_keys": sorted(updates.keys()),
-        "env_file_saved": env_saved,
         "ready": client_live_ready(),
         "backends": client_backends_status(),
     }

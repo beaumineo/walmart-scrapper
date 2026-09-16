@@ -827,19 +827,26 @@ def build_report(
             "Showing the last successful results for this same store only."
         )
     elif not live_ok and data_mode != "sample":
-        # Prefer collector notes when they already explain Akamai / setup
-        if collector_notes and (
-            "Akamai" in collector_notes
-            or "OXYLABS" in collector_notes
-            or "SCRAPERAPI" in collector_notes
-            or "setup" in collector_notes.lower()
-        ):
-            user_error = collector_notes
+        try:
+            from client_collector import client_live_ready
+
+            live_backend_ready = client_live_ready()
+        except Exception:
+            live_backend_ready = False
+        if collector_notes and len(str(collector_notes).strip()) > 8:
+            user_error = (
+                f"Could not load deals for store #{sid}. {collector_notes}"
+            )
+        elif live_backend_ready:
+            user_error = (
+                f"Could not load deals for store #{sid}. "
+                "The live data provider returned no store-scoped results. "
+                "Try another store or retry in a minute."
+            )
         else:
             user_error = (
-                f"Failed to load in-store deals for store #{sid}. "
-                "Walmart blocked the request. Configure Oxylabs or ScraperAPI "
-                "for reliable store-scoped pulls (ISP proxy alone is not enough)."
+                f"Could not load deals for store #{sid}. "
+                "Set OXYLABS_USERNAME and OXYLABS_PASSWORD on the server, then retry."
             )
         data_mode = "failed"
         deals_dicts = []

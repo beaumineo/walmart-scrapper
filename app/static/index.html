@@ -3,170 +3,205 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hidden Clearances — In-store Walmart deals</title>
+  <title>Hidden Clearances - In-store Walmart deals</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #f4f6f8;
-      --surface: #ffffff;
-      --ink: #1a1f26;
-      --muted: #5c6775;
-      --line: #d7dde5;
-      --accent: #0071ce;
-      --accent-dark: #004f9a;
-      --warn-bg: #fff8e6;
-      --warn-ink: #7a5b00;
-      --err-bg: #fdecea;
-      --err-ink: #b42318;
-      --ok: #0f7b3b;
-      --price: #c45500;
+      --ink: #eef3f8;
+      --muted: #9aa6b5;
+      --line: #2a3340;
+      --paper: #0b0f14;
+      --card: #121820;
+      --blue: #2f8fe8;
+      --blue-deep: #1b6fc0;
+      --gold: #ffc220;
+      --green: #3dd68c;
+      --red: #ff7b72;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
     }
 
     * { box-sizing: border-box; }
     html, body { margin: 0; }
     body {
       min-height: 100vh;
-      font-family: "IBM Plex Sans", sans-serif;
+      font-family: Manrope, sans-serif;
       color: var(--ink);
-      background: var(--bg);
+      background:
+        radial-gradient(900px 420px at 12% -8%, rgba(47,143,232,0.16), transparent 60%),
+        radial-gradient(700px 380px at 92% 0%, rgba(255,194,32,0.1), transparent 55%),
+        repeating-linear-gradient(
+          -12deg,
+          transparent,
+          transparent 22px,
+          rgba(255,255,255,0.015) 22px,
+          rgba(255,255,255,0.015) 23px
+        ),
+        var(--paper);
     }
 
     .shell {
-      max-width: 960px;
+      max-width: 1080px;
       margin: 0 auto;
-      padding: 24px 16px 56px;
+      padding: 28px 20px 72px;
     }
 
-    header {
+    .topbar {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
       gap: 12px;
-      margin-bottom: 20px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--line);
     }
 
-    header h1 {
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(145deg, var(--blue), var(--blue-deep));
+      color: white;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      box-shadow: 0 10px 24px rgba(47,143,232,0.28);
+    }
+
+    .brand h1 {
       margin: 0;
-      font-size: 1.35rem;
-      font-weight: 700;
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
     }
 
-    header p {
-      margin: 4px 0 0;
+    .brand p {
+      margin: 2px 0 0;
+      font-size: 12px;
       color: var(--muted);
-      font-size: 0.9rem;
     }
 
-    .mode {
-      font-size: 0.8rem;
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(18,24,32,0.88);
+      border: 1px solid var(--line);
+      font-size: 12px;
       font-weight: 600;
       color: var(--muted);
-      padding: 6px 10px;
-      border: 1px solid var(--line);
-      background: var(--surface);
-      white-space: nowrap;
+      backdrop-filter: blur(8px);
+    }
+
+    .status-pill i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 0 4px rgba(255,194,32,0.15);
+    }
+
+    .hero {
+      margin-bottom: 18px;
+    }
+
+    .hero h2 {
+      margin: 0;
+      font-family: Newsreader, Georgia, serif;
+      font-weight: 600;
+      font-size: clamp(2.1rem, 4.6vw, 3.3rem);
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      max-width: 14ch;
     }
 
     .panel {
-      background: var(--surface);
+      margin-top: 8px;
+      background: rgba(18,24,32,0.92);
       border: 1px solid var(--line);
-      padding: 16px;
-      margin-bottom: 16px;
+      border-radius: 22px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
     }
-
-    .steps {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 14px;
-      color: var(--muted);
-      font-size: 0.82rem;
-      font-weight: 600;
-    }
-
-    .steps span.on { color: var(--accent-dark); }
 
     .controls {
       display: grid;
-      grid-template-columns: 120px 1fr auto auto;
-      gap: 10px;
+      grid-template-columns: 140px 1fr auto auto;
+      gap: 12px;
       align-items: end;
     }
 
     label {
       display: block;
-      margin-bottom: 6px;
-      font-size: 0.78rem;
-      font-weight: 600;
+      margin-bottom: 7px;
+      font-size: 12px;
+      font-weight: 700;
       color: var(--muted);
+      letter-spacing: 0.02em;
     }
 
     input, select, button {
       font: inherit;
+      border-radius: 12px;
       border: 1px solid var(--line);
-      background: #fff;
+      background: #0d1218;
       color: var(--ink);
-      padding: 10px 12px;
+      padding: 13px 14px;
       width: 100%;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    }
+
+    select option {
+      background: #121820;
+      color: var(--ink);
     }
 
     input:focus, select:focus {
-      outline: 2px solid rgba(0, 113, 206, 0.35);
-      outline-offset: 1px;
-    }
-
-    button {
-      width: auto;
-      white-space: nowrap;
-      font-weight: 600;
-      cursor: pointer;
-    }
-
-    button.primary {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-    }
-
-    button.primary:hover { background: var(--accent-dark); }
-
-    button.ghost { background: #fff; }
-
-    button:disabled {
-      opacity: 0.55;
-      cursor: wait;
+      outline: none;
+      border-color: rgba(47,143,232,0.7);
+      box-shadow: 0 0 0 4px rgba(47,143,232,0.16);
     }
 
     .threshold-row {
       margin-top: 14px;
       padding-top: 14px;
-      border-top: 1px solid var(--line);
+      border-top: 1px solid rgba(42, 51, 64, 0.85);
     }
 
     .threshold-head {
       display: flex;
-      justify-content: space-between;
       align-items: baseline;
+      justify-content: space-between;
       gap: 12px;
       margin-bottom: 8px;
     }
 
-    .threshold-head label { margin: 0; }
+    .threshold-head label {
+      margin: 0;
+    }
 
     .threshold-value {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: var(--accent-dark);
+      font-family: Newsreader, Georgia, serif;
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--gold);
+      letter-spacing: 0.02em;
     }
 
     .threshold-value span {
-      font-size: 0.75rem;
-      font-weight: 600;
+      font-size: 13px;
+      font-family: Manrope, sans-serif;
       color: var(--muted);
+      font-weight: 600;
       margin-left: 4px;
     }
 
@@ -174,156 +209,205 @@
       -webkit-appearance: none;
       appearance: none;
       width: 100%;
-      height: 6px;
+      height: 8px;
       padding: 0;
       border: none;
-      background: #cfd8e3;
+      border-radius: 999px;
+      background: linear-gradient(
+        90deg,
+        rgba(47,143,232,0.35),
+        rgba(255,194,32,0.55)
+      );
       cursor: pointer;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
     }
 
     input[type="range"].snap-bar::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 18px;
-      height: 18px;
+      appearance: none;
+      width: 22px;
+      height: 22px;
       border-radius: 50%;
-      background: var(--accent);
-      border: 2px solid #fff;
-      box-shadow: 0 0 0 1px var(--accent);
+      background: #0b0f14;
+      border: 2px solid var(--gold);
+      box-shadow: 0 0 0 4px rgba(255,194,32,0.18);
       cursor: grab;
     }
 
     input[type="range"].snap-bar::-moz-range-thumb {
-      width: 18px;
-      height: 18px;
+      width: 22px;
+      height: 22px;
       border-radius: 50%;
-      background: var(--accent);
-      border: 2px solid #fff;
+      background: #0b0f14;
+      border: 2px solid var(--gold);
+      box-shadow: 0 0 0 4px rgba(255,194,32,0.18);
       cursor: grab;
     }
 
     .snap-ticks {
       display: flex;
       justify-content: space-between;
-      margin-top: 6px;
-      font-size: 0.72rem;
+      margin-top: 8px;
+      font-size: 11px;
       color: var(--muted);
       font-weight: 600;
+      user-select: none;
     }
 
-    .hint, .status {
-      margin: 10px 0 0;
+    button {
+      width: auto;
+      white-space: nowrap;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: linear-gradient(180deg, #3a98ef, var(--blue-deep));
+      border-color: transparent;
+      color: #fff;
+      box-shadow: 0 10px 22px rgba(47,143,232,0.28);
+    }
+
+    button.primary:hover { transform: translateY(-1px); }
+
+    button.ghost {
+      background: #0d1218;
+      color: var(--ink);
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: wait;
+      transform: none;
+    }
+
+    .status {
+      margin: 12px 0 0;
+      font-size: 13px;
       color: var(--muted);
-      font-size: 0.85rem;
-      line-height: 1.45;
     }
 
     .error {
       display: none;
       margin-top: 12px;
-      padding: 10px 12px;
-      background: var(--err-bg);
-      border: 1px solid #f0b4ae;
-      color: var(--err-ink);
-      font-size: 0.85rem;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(180,35,24,0.16);
+      border: 1px solid rgba(255,123,114,0.35);
+      color: var(--red);
+      font-size: 13px;
       line-height: 1.45;
     }
 
     .error.warn {
-      background: var(--warn-bg);
-      border-color: #f0d78c;
-      color: var(--warn-ink);
+      background: rgba(255,194,32,0.12);
+      border-color: rgba(255,194,32,0.4);
+      color: #f0d078;
     }
 
     .setup-panel {
-      margin-top: 14px;
-      padding: 12px;
-      border: 1px solid #f0d78c;
-      background: var(--warn-bg);
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(18,24,32,0.92);
     }
-
     .setup-panel[hidden] { display: none !important; }
-
-    .setup-panel h4 {
-      margin: 0 0 6px;
-      font-size: 0.95rem;
+    .setup-panel h4 { margin: 0 0 8px; font-size: 0.95rem; }
+    .setup-panel > p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .setup-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
     }
-
-    .setup-panel p {
-      margin: 0;
-      color: var(--warn-ink);
-      font-size: 0.85rem;
-      line-height: 1.45;
+    @media (min-width: 720px) {
+      .setup-grid { grid-template-columns: 1.2fr 1fr 1fr; }
     }
-
-    .setup-panel ol {
-      margin: 8px 0 0;
-      padding-left: 1.2rem;
-      color: var(--warn-ink);
-      font-size: 0.85rem;
-      line-height: 1.5;
+    .setup-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
     }
+    .setup-actions a { color: var(--blue); font-size: 12px; }
+    .setup-status { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
 
     .summary {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      margin-bottom: 16px;
+      gap: 12px;
+      margin-top: 18px;
     }
 
     .stat {
-      background: var(--surface);
+      background: var(--card);
       border: 1px solid var(--line);
-      padding: 12px;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
     }
 
     .stat span {
       display: block;
-      font-size: 0.75rem;
+      font-size: 12px;
       font-weight: 600;
       color: var(--muted);
     }
 
     .stat b {
       display: block;
-      margin-top: 6px;
-      font-size: 1.25rem;
+      margin-top: 8px;
+      font-size: 1.55rem;
+      letter-spacing: -0.03em;
     }
 
     .section-head {
       display: flex;
       justify-content: space-between;
-      align-items: baseline;
-      gap: 12px;
-      margin: 8px 0 10px;
+      align-items: end;
+      margin: 26px 0 12px;
     }
 
     .section-head h3 {
       margin: 0;
-      font-size: 1rem;
+      font-size: 1.05rem;
+      letter-spacing: -0.02em;
     }
 
     .section-head p {
       margin: 0;
-      font-size: 0.8rem;
+      font-size: 12px;
       color: var(--muted);
       font-weight: 600;
     }
 
-    .deals { display: grid; gap: 8px; }
+    .deals {
+      display: grid;
+      gap: 10px;
+    }
 
     .deal {
       display: grid;
-      grid-template-columns: 56px 64px 1fr auto;
-      gap: 12px;
+      grid-template-columns: 72px 72px 1fr auto;
+      gap: 14px;
       align-items: center;
-      padding: 12px;
+      padding: 14px 16px;
+      border-radius: 16px;
       border: 1px solid var(--line);
-      background: var(--surface);
+      background: rgba(18,24,32,0.92);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .deal:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow);
     }
 
     .deal-img {
-      width: 64px;
-      height: 64px;
+      width: 72px;
+      height: 72px;
+      border-radius: 12px;
       object-fit: contain;
       background: #fff;
       border: 1px solid var(--line);
@@ -332,130 +416,200 @@
     .deal-img.placeholder {
       display: grid;
       place-items: center;
+      background: #0d1218;
       color: var(--muted);
-      font-size: 0.7rem;
+      font-size: 11px;
       font-weight: 700;
-      background: var(--bg);
     }
 
     .pct {
-      width: 56px;
-      height: 56px;
+      width: 72px;
+      height: 72px;
+      border-radius: 16px;
       display: grid;
       place-items: center;
-      background: #e8f5ee;
-      color: var(--ok);
-      font-weight: 700;
-      font-size: 0.95rem;
+      background: linear-gradient(160deg, #163528, #10261d);
+      color: var(--green);
+      font-weight: 800;
+      font-size: 1.1rem;
+      letter-spacing: -0.03em;
     }
 
     .pct.deep {
-      background: #fff3e0;
-      color: var(--price);
+      background: linear-gradient(160deg, #3a2a10, #241a0a);
+      color: var(--gold);
     }
 
     .deal h4 {
       margin: 0 0 4px;
-      font-size: 0.92rem;
-      font-weight: 600;
+      font-size: 0.98rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
       line-height: 1.35;
+      max-height: 2.7em;
+      overflow: hidden;
     }
 
     .meta-line {
       color: var(--muted);
-      font-size: 0.78rem;
+      font-size: 12px;
       line-height: 1.4;
     }
 
     .chip {
-      display: inline-block;
-      margin-top: 6px;
-      padding: 2px 7px;
+      display: inline-flex;
+      margin-top: 8px;
+      margin-right: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
       border: 1px solid var(--line);
-      font-size: 0.7rem;
+      font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.04em;
       color: var(--muted);
-      background: var(--bg);
+      background: #0d1218;
     }
 
     .deal-link {
       display: inline-block;
-      margin-top: 6px;
-      font-size: 0.78rem;
+      margin-top: 8px;
+      font-size: 12px;
       font-weight: 600;
-      color: var(--accent);
+      color: var(--blue);
       text-decoration: none;
     }
-
     .deal-link:hover { text-decoration: underline; }
 
-    .prices { text-align: right; min-width: 72px; }
-
+    .prices { text-align: right; min-width: 88px; }
     .now {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: var(--price);
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--gold);
+      letter-spacing: -0.03em;
     }
-
     .was {
       margin-top: 2px;
       color: var(--muted);
       text-decoration: line-through;
-      font-size: 0.82rem;
+      font-size: 13px;
     }
 
-    .empty, .loading {
-      text-align: center;
-      padding: 28px 16px;
-      border: 1px solid var(--line);
-      background: var(--surface);
+    @media (max-width: 720px) {
+      .deal {
+        grid-template-columns: 56px 1fr auto;
+      }
+      .pct { display: none; }
+      .deal-img, .deal-img.placeholder { width: 56px; height: 56px; }
     }
 
-    .empty h4, .loading b {
-      margin: 0 0 8px;
-      font-size: 1rem;
-    }
-
-    .empty p, .loading div {
-      margin: 0 auto;
-      max-width: 42ch;
+    footer {
+      margin-top: 28px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
       color: var(--muted);
-      font-size: 0.88rem;
-      line-height: 1.5;
+      font-size: 12px;
+      line-height: 1.55;
+      max-width: 70ch;
     }
 
-    .empty-actions {
+    .steps {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      justify-content: center;
-      margin-top: 14px;
+      margin: 0 0 14px;
     }
-
-    .spinner {
-      width: 22px;
-      height: 22px;
-      margin: 0 auto 10px;
-      border: 2px solid var(--line);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.75s linear infinite;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    footer {
-      margin-top: 20px;
-      padding-top: 12px;
-      border-top: 1px solid var(--line);
+    .step {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #0d1218;
       color: var(--muted);
-      font-size: 0.8rem;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .step b {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(47,143,232,0.18);
+      color: var(--blue);
+      font-size: 11px;
+    }
+    .step.on {
+      border-color: rgba(47,143,232,0.45);
+      color: var(--ink);
+    }
+
+    .hint {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .empty {
+      display: grid;
+      justify-items: center;
+      text-align: center;
+      gap: 10px;
+      padding: 36px 22px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--card);
+    }
+    .empty h4 {
+      margin: 4px 0 0;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+    .empty p {
+      margin: 0;
+      max-width: 42ch;
+      color: var(--muted);
+      font-size: 13px;
       line-height: 1.5;
     }
+    .empty-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+    .empty-actions button {
+      width: auto;
+      min-width: 132px;
+    }
 
-    @media (max-width: 800px) {
+    .loading {
+      display: grid;
+      justify-items: center;
+      gap: 12px;
+      padding: 40px 20px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--card);
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 3px solid rgba(47,143,232,0.2);
+      border-top-color: var(--blue);
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 860px) {
       .controls { grid-template-columns: 1fr 1fr; }
       .controls > div:nth-child(2),
       .controls button { grid-column: 1 / -1; }
@@ -463,10 +617,8 @@
     }
 
     @media (max-width: 560px) {
-      header { flex-direction: column; }
-      .deal { grid-template-columns: 48px 1fr; }
-      .pct { display: none; }
-      .deal-img, .deal-img.placeholder { width: 48px; height: 48px; }
+      .topbar { flex-direction: column; align-items: flex-start; }
+      .deal { grid-template-columns: 64px 1fr; }
       .prices { grid-column: 2; text-align: left; }
       .summary { grid-template-columns: 1fr; }
       .controls { grid-template-columns: 1fr; }
@@ -475,19 +627,26 @@
 </head>
 <body>
   <div class="shell">
-    <header>
-      <div>
-        <h1>Hidden Clearances</h1>
-        <p>In-store Walmart markdown finder</p>
+    <div class="topbar">
+      <div class="brand">
+        <div class="mark">HC</div>
+        <div>
+          <h1>Hidden Clearances</h1>
+          <p>In-store Walmart markdown finder</p>
+        </div>
       </div>
-      <div class="mode" id="modePill">Ready</div>
-    </header>
+      <div class="status-pill" id="modePill"><i></i> Ready</div>
+    </div>
+
+    <section class="hero">
+      <h2>Find real in-store deals by ZIP</h2>
+    </section>
 
     <section class="panel">
       <div class="steps" aria-label="How to use">
-        <span class="on" id="step1">1. Enter ZIP</span>
-        <span id="step2">2. Pick store</span>
-        <span id="step3">3. Set % &amp; search</span>
+        <div class="step on" id="step1"><b>1</b> Enter ZIP</div>
+        <div class="step" id="step2"><b>2</b> Pick store</div>
+        <div class="step" id="step3"><b>3</b> Set % &amp; search</div>
       </div>
       <div class="controls">
         <div>
@@ -505,7 +664,7 @@
       </div>
       <div class="threshold-row">
         <div class="threshold-head">
-          <label for="minPct">Minimum discount</label>
+          <label for="minPct">Show deals with at least this discount</label>
           <div class="threshold-value" id="minPctLabel">20%<span>min</span></div>
         </div>
         <input
@@ -532,19 +691,34 @@
         <div class="snap-ticks" aria-hidden="true">
           <span>10%</span><span>30%</span><span>50%</span><span>70%</span><span>90%</span>
         </div>
-        <p class="hint"><b>20–40%</b> finds more everyday markdowns. <b>70%+</b> is rare — many stores correctly show zero.</p>
+        <p class="hint">20-40% finds more deals. 70%+ is uncommon and often returns zero.</p>
       </div>
-      <p class="status" id="status">Search one Walmart at a time for live in-store markdowns.</p>
+      <p class="status" id="status">Enter a ZIP, pick a store, then search for in-store markdowns.</p>
       <div class="error" id="error"></div>
       <div id="setupPanel" class="setup-panel" hidden>
-        <h4>Live data not connected on this server</h4>
-        <p id="setupBody">Oxylabs credentials must be set as Railway Variables and applied to a new deployment.</p>
-        <ol>
-          <li>Railway → walmart-scrapper → Variables</li>
-          <li>Confirm <code>OXYLABS_USERNAME</code>, <code>OXYLABS_PASSWORD</code>, <code>WALMART_COLLECT_ENGINE=auto</code></li>
-          <li>Click <b>Apply changes</b> / <b>Deploy</b> and wait until the new deploy is Active</li>
-          <li>Refresh this page</li>
-        </ol>
+        <h4>Server credentials missing</h4>
+        <p id="setupMessage">
+          Set <code>OXYLABS_USERNAME</code> and <code>OXYLABS_PASSWORD</code> in Railway Variables, then redeploy.
+          Do not fill every suggested variable - only those three are required (plus <code>WALMART_COLLECT_ENGINE=auto</code>).
+        </p>
+        <div id="setupForm" class="setup-grid" hidden>
+          <div>
+            <label for="scraperKey">ScraperAPI key</label>
+            <input id="scraperKey" type="password" placeholder="optional" autocomplete="off" />
+          </div>
+          <div>
+            <label for="oxyUser">Oxylabs username</label>
+            <input id="oxyUser" type="text" placeholder="username" autocomplete="off" />
+          </div>
+          <div>
+            <label for="oxyPass">Oxylabs password</label>
+            <input id="oxyPass" type="password" placeholder="password" autocomplete="off" />
+          </div>
+        </div>
+        <div id="setupActions" class="setup-actions" hidden>
+          <button id="btnSaveBackend" class="primary" type="button">Save locally</button>
+        </div>
+        <p class="setup-status" id="setupStatus"></p>
       </div>
     </section>
 
@@ -557,7 +731,7 @@
     <section id="deals" class="deals"></section>
 
     <footer id="meta">
-      Live markdown / clearance for the selected store only. Results vary by store inventory and your minimum discount.
+      In-store markdown and clearance for the selected Walmart store.
     </footer>
   </div>
 
@@ -575,8 +749,11 @@
     const metaEl = $("meta");
 
     function setModePill(mode) {
-      const live = String(mode || "").startsWith("live") || mode === "in-store live" || mode === "in-store (cached)";
-      modePill.textContent = live ? "In-store live" : (mode || "Ready");
+      const live = String(mode || "").startsWith("live");
+      modePill.innerHTML = live
+        ? "<i></i> In-store live"
+        : `<i></i> ${mode || "ready"}`;
+      modePill.style.borderColor = live ? "rgba(61,214,140,0.45)" : "";
     }
 
     function showError(msg, soft = false) {
@@ -589,11 +766,14 @@
       errorEl.textContent = "";
       errorEl.classList.remove("warn");
     }
-    function showSetup(show, message) {
+    function showSetup(show, { hosted = true } = {}) {
       const panel = $("setupPanel");
-      if (!panel) return;
-      panel.hidden = !show;
-      if (show && message && $("setupBody")) $("setupBody").textContent = message;
+      if (panel) panel.hidden = !show;
+      const form = $("setupForm");
+      const actions = $("setupActions");
+      // Hosted: never ask clients to paste API keys — only Railway Variables.
+      if (form) form.hidden = !show || hosted;
+      if (actions) actions.hidden = !show || hosted;
     }
 
     async function refreshBackendStatus() {
@@ -601,14 +781,49 @@
         const res = await fetch("/api/backends");
         const data = await res.json();
         if (!data.ready) {
-          showSetup(true, data.setup_message || "");
+          showSetup(true, { hosted: data.hosted !== false });
           if (data.setup_message) showError(data.setup_message, true);
         } else {
           showSetup(false);
+          clearError();
         }
         return data;
       } catch (_) {
         return null;
+      }
+    }
+
+    async function saveBackend() {
+      const setupStatus = $("setupStatus");
+      const payload = {
+        scraperapi_key: ($("scraperKey")?.value || "").trim() || null,
+        oxylabs_username: ($("oxyUser")?.value || "").trim() || null,
+        oxylabs_password: ($("oxyPass")?.value || "").trim() || null,
+      };
+      if (!payload.scraperapi_key && !(payload.oxylabs_username && payload.oxylabs_password)) {
+        if (setupStatus) setupStatus.textContent = "Enter ScraperAPI key or Oxylabs username + password.";
+        return;
+      }
+      if (setupStatus) setupStatus.textContent = "Saving...";
+      try {
+        const res = await fetch("/api/backends/configure", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(errText(data.detail) || "Save failed");
+        if (setupStatus) {
+          setupStatus.textContent = data.ready
+            ? "Live backend enabled. Click Generate report again."
+            : "Saved, but backend still not ready.";
+        }
+        if (data.ready) {
+          clearError();
+          showSetup(false);
+        }
+      } catch (e) {
+        if (setupStatus) setupStatus.textContent = e.message || String(e);
       }
     }
 
@@ -700,14 +915,14 @@
       });
     }
 
-    function renderEmpty({ title, body, setup }) {
+    function renderEmpty({ title, body, minPct, storeId, setup }) {
       dealsHead.hidden = false;
       summaryEl.hidden = false;
       const actions = setup
         ? ""
         : `<div class="empty-actions">
-            <button type="button" class="primary" data-set-pct="40">Try 40% min</button>
-            <button type="button" class="ghost" data-set-pct="20">Try 20% min</button>
+            <button type="button" class="primary" data-set-pct="40">Set 40% min</button>
+            <button type="button" class="ghost" data-set-pct="20">Set 20% min</button>
           </div>`;
       dealsEl.innerHTML = `
         <div class="empty">
@@ -729,12 +944,12 @@
 
     function renderLoading(minPct) {
       dealsHead.hidden = false;
-      dealsCount.textContent = `Searching store… (>=${minPct}% off)`;
+      dealsCount.textContent = `Searching store (>=${minPct}% off)`;
       summaryEl.hidden = true;
       dealsEl.innerHTML = `
         <div class="loading">
           <div class="spinner" aria-hidden="true"></div>
-          <div><b>Checking live in-store prices</b><br/>Usually 30–90 seconds. Keep this tab open.</div>
+          <div>Checking live in-store prices. This can take up to 90 seconds.</div>
         </div>`;
     }
 
@@ -746,7 +961,7 @@
       const minPct = Number($("minPct")?.value || 20);
       $("btnReport").disabled = true;
       setSteps(3);
-      statusEl.textContent = `Searching store #${storeId} for deals >=${minPct}% off…`;
+      statusEl.textContent = `Searching store #${storeId} for deals >=${minPct}% off...`;
       setModePill("searching");
       renderLoading(minPct);
       const ctrl = new AbortController();
@@ -765,12 +980,15 @@
         const deals = Array.isArray(data.deals) ? data.deals : [];
         const storeName = data.store?.name || `Store #${storeId}`;
 
-        if (userErr && (mode === "live_cached" || mode === "setup_required")) {
+        if (userErr && mode === "live_cached") {
+          showError(userErr, true);
+        } else if (userErr && mode === "setup_required") {
           showError(userErr, true);
         } else {
           clearError();
         }
 
+        // Live ok but slider filtered everything out
         if (liveOk && deals.length === 0 && (mode === "live" || mode === "live_cached")) {
           setModePill(mode === "live_cached" ? "in-store (cached)" : "in-store live");
           dealsCount.textContent = `0 deals at >=${minPct}% · ${storeName} (#${storeId})`;
@@ -781,18 +999,26 @@
             <div class="stat"><span>Status</span><b>Live</b></div>
           `;
           renderEmpty({
-            title: minPct >= 70 ? `No hidden-clearance hits at ${minPct}%+` : `No deals at ${minPct}%+ right now`,
-            body: `${storeName} has live prices, but nothing is currently ${minPct}%+ off vs was/list. Try a lower minimum — 20–40% usually finds more.`,
+            title: `No deals at >=${minPct}%`,
+            body: `${storeName} returned live prices, but none meet your ${minPct}% minimum. Lower the slider to see smaller markdowns.`,
+            minPct,
+            storeId,
           });
           statusEl.textContent = `Live check done for #${storeId}: 0 deals at >=${minPct}%.`;
-          metaEl.textContent = "Filter is working — raise/lower the slider to change how deep the discounts must be.";
+          metaEl.textContent = "Lower the discount slider to include smaller markdowns.";
           return;
         }
 
+        // Failed for this store — only show setup when credentials are truly missing
         if (!liveOk || mode === "failed" || mode === "failed_no_proxy" || mode === "setup_required" || mode === "sample") {
-          setModePill(mode === "setup_required" ? "setup needed" : "failed");
-          showSetup(mode === "setup_required" || /OXYLABS|SCRAPERAPI|Akamai|ISP|Railway/i.test(String(userErr || "")));
-          dealsCount.textContent = mode === "setup_required" ? "Setup needed" : `0 deals · ${storeName}`;
+          const needsSetup = mode === "setup_required";
+          setModePill(needsSetup ? "setup needed" : "failed");
+          if (needsSetup) {
+            showSetup(true, { hosted: true });
+          } else {
+            showSetup(false);
+          }
+          dealsCount.textContent = needsSetup ? "Setup needed" : `0 deals · ${storeName}`;
           summaryEl.innerHTML = `
             <div class="stat"><span>Deals</span><b>0</b></div>
             <div class="stat"><span>Your filter</span><b>≥${minPct}%</b></div>
@@ -800,14 +1026,16 @@
             <div class="stat"><span>Status</span><b>Unavailable</b></div>
           `;
           renderEmpty({
-            title: mode === "setup_required" ? "Live connection needed" : `Couldn't load deals for #${storeId}`,
-            body: mode === "setup_required"
-              ? "In Railway Variables, click Apply changes / Deploy, wait for Active, then refresh."
-              : (userErr || `Nothing matched >=${minPct}% for this store. Try another store or a lower discount filter.`),
-            setup: mode === "setup_required",
+            title: needsSetup ? "Server credentials missing" : `Could not load deals for #${storeId}`,
+            body: needsSetup
+              ? "Set OXYLABS_USERNAME and OXYLABS_PASSWORD in Railway Variables, then redeploy."
+              : (userErr || `No results for this store at >=${minPct}%. Try another store or a lower filter.`),
+            minPct,
+            storeId,
+            setup: needsSetup,
           });
-          statusEl.textContent = mode === "setup_required"
-            ? "Setup required before live store search."
+          statusEl.textContent = needsSetup
+            ? "Server credentials required for live search."
             : `No results for ${storeName} (#${storeId}).`;
           metaEl.textContent = data.meta?.note || "";
           return;
@@ -846,34 +1074,36 @@
             : `<div class="deal-img placeholder">IMG</div>`;
           return `
           <article class="deal">
-            <div class="${dealClass(pct)}">${hasMd ? Math.round(pct) + "%" : "—"}</div>
+            <div class="${dealClass(pct)}">${hasMd ? Math.round(pct) + "%" : "-"}</div>
             ${imgHtml}
             <div>
               <h4><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;">${escapeHtml(title)}</a></h4>
               <div class="meta-line">${escapeHtml(brand)} · ${escapeHtml(category)}${saveLine}</div>
               <span class="chip">${escapeHtml(String(d.deal_type || "shelf").replace(/_/g, " "))}${d.in_store === false ? "" : " · in store"}</span>
-              <div class="meta-line" style="margin-top:6px">${escapeHtml(String(d.why_deal || d.notes || ""))}</div>
+              <div class="meta-line" style="margin-top:6px;opacity:0.9">${escapeHtml(String(d.why_deal || d.notes || ""))}</div>
               <a class="deal-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open on Walmart</a>
             </div>
             <div class="prices">
-              <div class="now">$${Number.isFinite(current) ? current.toFixed(2) : "—"}</div>
+              <div class="now">$${Number.isFinite(current) ? current.toFixed(2) : "-"}</div>
               ${wasLine}
             </div>
           </article>`;
         }).join("");
 
-        metaEl.textContent = "Live in-store markdowns for this Walmart only — not a national online list.";
+        metaEl.textContent = "Live in-store markdowns for the selected store only.";
         statusEl.textContent = `${deals.length} deals found at ${storeName} (#${storeId}).`;
       } catch (e) {
         const msg = e.name === "AbortError"
-          ? "Search timed out (live store pulls can take up to ~90s). Please try again."
+          ? "Search timed out. Live store pulls can take up to 90 seconds. Try again."
           : (e.message || "Search failed");
         showError(msg);
         statusEl.textContent = "Search failed.";
         setModePill("error");
         renderEmpty({
-          title: "Something went wrong",
+          title: "Search failed",
           body: msg,
+          minPct: Number($("minPct")?.value || 20),
+          storeId: storeEl.value || "",
         });
       } finally {
         clearTimeout(timer);
@@ -890,6 +1120,7 @@
 
     $("btnStores").addEventListener("click", findStores);
     $("btnReport").addEventListener("click", generateReport);
+    $("btnSaveBackend")?.addEventListener("click", saveBackend);
     refreshBackendStatus();
     setSteps(1);
     zipEl.addEventListener("input", () => {
@@ -899,12 +1130,12 @@
       clearResults();
       clearError();
       setSteps(1);
-      statusEl.textContent = "ZIP changed — click Find stores, then Find deals.";
+      statusEl.textContent = "ZIP changed. Click Find stores, then Find deals.";
     });
     storeEl.addEventListener("change", () => {
       clearResults();
       setSteps(2);
-      statusEl.textContent = `Store #${storeEl.value} selected — set your discount filter, then Find deals.`;
+      statusEl.textContent = `Store #${storeEl.value} selected. Set discount %, then Find deals.`;
     });
     const minPctEl = $("minPct");
     if (minPctEl) {

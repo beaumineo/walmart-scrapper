@@ -1,22 +1,27 @@
 # Host for client demo — Railway (API + UI together)
 
-This app needs **long-running** live Walmart pulls (often 30–90s).  
-Use **Railway** for the whole app (frontend + backend). Vercel alone will time out.
+This app needs long-running live Walmart pulls (often 30-90s).
+Use Railway for the whole app (frontend + backend). Vercel alone will time out.
 
 ## 1) Create Railway project
 
-1. Go to https://railway.app → New Project → Deploy from GitHub (or empty + Dockerfile)
+1. Go to https://railway.app → New Project → Deploy from GitHub
 2. Root directory = this repo
-3. Railway will build with `Dockerfile`
+3. Railway builds with `Dockerfile`
 
-## 2) Set environment variables
+## 2) Set environment variables (only these)
 
-In Railway → Variables:
+In Railway → Variables, add **only**:
 
 ```
 OXYLABS_USERNAME=your_user
 OXYLABS_PASSWORD=your_pass
 WALMART_COLLECT_ENGINE=auto
+```
+
+Optional (defaults are fine if omitted):
+
+```
 WALMART_QUERIES=clearance,rollback
 DEAL_DEALS_ONLY=1
 DEAL_INCLUDE_SHELF=0
@@ -25,23 +30,23 @@ WALMART_UC_ENABLED=0
 WALMART_ALLOW_BROWSER=0
 ```
 
-**Important:** after editing Variables, click **Apply changes** / **Deploy**.
-Typed-but-not-applied variables are invisible to the running app.
+Ignore Railway "Suggested Variables" for empty keys like `PROXIES`, `WALMART_TMP_DIR`, etc. You do not need to fill those.
 
-Optional: keep `PROXIES` unset on Railway (Oxylabs is enough).
-
-Check that credentials loaded: open `/health` — you should see `"live_ready": true` and `"backends": {"oxylabs": true, ...}`.
+After changing Variables, wait for redeploy (or click Redeploy).
 
 ## 3) Public URL
 
-Settings → Networking → **Generate Domain** → open `https://….up.railway.app`
+Settings → Networking → Generate Domain
 
-## 4) Optional: Vercel frontend later
+Share: `https://your-service.up.railway.app`
 
-Only if you want a separate marketing domain:
+Open `/` for the UI. Check `/health` — `live_ready` should be `true` and `backends.oxylabs` should be `true`.
 
-- Vercel = static `app/static`
-- Set fetch base to Railway API
-- Keep scraping on Railway
+## 4) Troubleshooting
 
-For the client check **now**, Railway-only is simplest.
+| Symptom | Fix |
+|---|---|
+| UI asks for credentials | Oxylabs vars missing or not redeployed after save |
+| `Application not found` | Domain unexposed or service stopped — Generate Domain again |
+| Pulls fail but local works | Confirm latest deploy includes `WALMART_COLLECT_INLINE=1` (Dockerfile) |
+| Suggested vars empty | Safe to ignore — not required |

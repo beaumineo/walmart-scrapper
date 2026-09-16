@@ -61,14 +61,11 @@ def client_live_ready(cfg: Optional[CollectorConfig] = None) -> bool:
 
 
 def setup_required_message(store_id: Optional[str] = None) -> str:
-    sid = f" store #{store_id}" if store_id else ""
+    sid = f" for store #{store_id}" if store_id else ""
     return (
-        f"Cannot load live in-store deals{sid}: Walmart blocks ISP proxies (Akamai). "
-        "Add one commercial backend to .env, then retry — "
-        "OXYLABS_USERNAME + OXYLABS_PASSWORD (best for store-scoped), "
-        "or SCRAPERAPI_KEY, "
-        "or BRIGHTDATA_API_KEY + BRIGHTDATA_UNLOCKER_ZONE. "
-        "Browser scraping is disabled for the client."
+        f"Live in-store deals{sid} need server credentials: "
+        "OXYLABS_USERNAME + OXYLABS_PASSWORD "
+        "(or SCRAPERAPI_KEY). Set them in Railway Variables, then redeploy."
     )
 
 

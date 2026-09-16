@@ -4,13 +4,15 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8000
+    PORT=8000 \
+    WALMART_COLLECT_INLINE=1
 
 COPY requirements.txt requirements-railway.txt ./
 RUN pip install --no-cache-dir -r requirements-railway.txt
 
 COPY app ./app
 COPY data ./data
+COPY scripts ./scripts
 
 WORKDIR /app/app
 EXPOSE 8000
