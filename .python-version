@@ -1,0 +1,2 @@
+# Ignore Python version pin if needed; Vercel defaults to 3.12
+3.12

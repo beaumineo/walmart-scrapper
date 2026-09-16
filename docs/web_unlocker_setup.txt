@@ -1,0 +1,29 @@
+Bright Data Web Unlocker setup (for this project)
+
+Why
+- Plain ISP/residential often hits Walmart "Robot or human?"
+- Web Unlocker is Bright Data's product that returns clean HTML
+- Our code calls their API/proxy — we do not DIY CAPTCHA solving
+
+Steps in Bright Data dashboard
+1. Create product: Web Unlocker API (not only ISP/residential)
+2. Note zone name (example: web_unlocker1)
+3. Create/copy API key (Account settings → API keys)
+   OR copy Access parameters for native proxy mode
+
+Put in .env (Mode A — recommended)
+BRIGHTDATA_API_KEY=xxxxx
+BRIGHTDATA_UNLOCKER_ZONE=web_unlocker1
+BRIGHTDATA_UNLOCKER_COUNTRY=us
+WALMART_COLLECT_ENGINE=auto
+
+Or Mode B — unlocker proxy line
+BRIGHTDATA_UNLOCKER_PROXY=brd.superproxy.io:44445:brd-customer-YOURID-zone-web_unlocker1:PASSWORD
+WALMART_COLLECT_ENGINE=unlocker
+
+Then tell the agent: "test once"
+We will run a single clearance pull only.
+
+Docs
+- https://brightdata.com/products/web-unlocker
+- https://docs.brightdata.com/scraping-automation/web-unlocker/send-your-first-request

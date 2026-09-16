@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/zip_geocode_cache.json
+data/store_cache.json
+data/good_proxy_session.json
+# keep store_geocode_cache.json tracked for better store distances on Vercel
+data/tmp_dl
+data/deals.db
+data/pulls/
+data/*.bak
+data/*.full.json.bak
+data/us_zips.full.json.bak
+data/us_zips_slim_preview.json
+.env
+.vercel
+
+
+.DS_Store

@@ -1,0 +1,49 @@
+Proxy suggestions for live Walmart price collection
+
+Why
+- Walmart uses HUMAN (PerimeterX) + related bot checks.
+- One sticky/dedicated IP can work, then get flagged if challenged and retried hard.
+- For ongoing scans, prefer US rotating residential (or a pool of ISP IPs).
+
+What this project already uses
+- curl_cffi Chrome TLS impersonation
+- __NEXT_DATA__ JSON parsing (not brittle HTML CSS scraping)
+- Deals hub pages first (/shop/deals/clearance)
+- Stop-on-challenge to protect sticky IPs
+
+Recommended Bright Data setup
+1) Best for production volume: Rotating Residential (US)
+   - Username often like: brd-customer-XXX-zone-residential_xxx-country-us
+   - Set WALMART_PROXY_ROTATE_SESSION=1 so each retry uses a new -session-ID
+2) OK for light tests: ISP / dedicated
+   - Works, but ONE IP will burn if Walmart challenges it
+   - If challenged: rotate to another ISP IP in dashboard, or wait for cool-down
+   - Do NOT keep retrying the same IP
+
+Configure (.env)
+PROXIES=brd.superproxy.io:33335:brd-customer-XXX-zone-YYY-country-us:PASSWORD
+WALMART_COLLECT_ENGINE=curl
+WALMART_MAX_RETRIES=1
+WALMART_PROXY_ROTATE_SESSION=1
+WALMART_QUERIES=clearance
+WALMART_MIN_DELAY_SEC=3
+WALMART_MAX_DELAY_SEC=8
+WALMART_STOP_ON_CHALLENGE=1
+
+Then:
+python scripts/run_price_pull.py STORE_ID --zip ZIP --force
+
+Success = mode=live and product_count > 0
+
+Also useful from triposat/walmart-price-monitor:
+- curl_cffi Chrome impersonation (not Selenium for product pages)
+- Parse __NEXT_DATA__ only (canonical price source)
+- Narrow challenge markers (title robot/human + press-and-hold text)
+- On challenge: retry with NEXT proxy/session — they do NOT solve CAPTCHAs
+- Random 3–10s waits between retries
+- Prefer ISP/residential; datacenter fails often
+
+Captcha policy for this project:
+- Do not wire 2captcha / CapSolver / HUMAN bypass into this repo
+- Match triposat: rotate session/IP and retry a few times
+- If still blocked: Bright Data Web Unlocker product, or residential zone quality upgrade

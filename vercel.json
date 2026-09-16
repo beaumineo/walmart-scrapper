@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "functions": {
+    "app/main.py": {
+      "maxDuration": 60,
+      "memory": 1024,
+      "excludeFiles": "{data/pulls/**,data/ref_repos/**,data/tmp_dl/**,data/deals.db,data/*.bak,data/*.full.json.bak,docs/**,scripts/**,**/.venv/**,**/__pycache__/**}"
+    }
+  }
+}
