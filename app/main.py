@@ -88,7 +88,7 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "0.9.3",
+        "version": "0.9.4",
         "milestone": 3,
         "milestones_complete": [1, 2, 3],
         "proxy_count": len(cfg.proxies),
@@ -109,7 +109,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "0.9.3-inline",
+            "build": "0.9.4-fast-oxylabs",
         },
     }
 
