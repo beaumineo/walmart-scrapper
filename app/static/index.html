@@ -915,9 +915,15 @@
       });
     }
 
-    function renderEmpty({ title, body, minPct, storeId, setup }) {
+    function renderEmpty({ title, body, minPct, storeId, setup, statusLabel }) {
       dealsHead.hidden = false;
       summaryEl.hidden = false;
+      summaryEl.innerHTML = `
+        <div class="stat"><span>Deals</span><b>0</b></div>
+        <div class="stat"><span>Your filter</span><b>≥${Number(minPct) || 20}%</b></div>
+        <div class="stat"><span>Store</span><b>#${escapeHtml(storeId || "-")}</b></div>
+        <div class="stat"><span>Status</span><b>${escapeHtml(statusLabel || "Unavailable")}</b></div>
+      `;
       const actions = setup
         ? ""
         : `<div class="empty-actions">
@@ -946,10 +952,11 @@
       dealsHead.hidden = false;
       dealsCount.textContent = `Searching store (>=${minPct}% off)`;
       summaryEl.hidden = true;
+      summaryEl.innerHTML = "";
       dealsEl.innerHTML = `
         <div class="loading">
           <div class="spinner" aria-hidden="true"></div>
-          <div>Checking live in-store prices. This can take up to 90 seconds.</div>
+          <div>Checking live in-store prices. Keep this tab open (often 20-90 seconds).</div>
         </div>`;
     }
 
@@ -965,7 +972,7 @@
       setModePill("searching");
       renderLoading(minPct);
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 150000);
+      const timer = setTimeout(() => ctrl.abort(), 180000);
       try {
         const res = await fetch(
           `/api/deals?zip=${encodeURIComponent(zip)}&store_id=${encodeURIComponent(storeId)}&min_discount_pct=${encodeURIComponent(minPct)}&mode=live`,
@@ -1093,9 +1100,12 @@
         metaEl.textContent = "Live in-store markdowns for the selected store only.";
         statusEl.textContent = `${deals.length} deals found at ${storeName} (#${storeId}).`;
       } catch (e) {
-        const msg = e.name === "AbortError"
-          ? "Search timed out. Live store pulls can take up to 90 seconds. Try again."
-          : (e.message || "Search failed");
+        let msg = e.message || "Search failed";
+        if (e.name === "AbortError") {
+          msg = "Search timed out. Live store pulls can take up to 90 seconds. Try again.";
+        } else if (/failed to fetch|networkerror|load failed/i.test(String(msg))) {
+          msg = "Connection dropped while loading live prices. Wait a few seconds and click Find deals again.";
+        }
         showError(msg);
         statusEl.textContent = "Search failed.";
         setModePill("error");
@@ -1104,7 +1114,9 @@
           body: msg,
           minPct: Number($("minPct")?.value || 20),
           storeId: storeEl.value || "",
+          statusLabel: "Retry",
         });
+        metaEl.textContent = "Live pulls sometimes take 30-90s. A second try usually works.";
       } finally {
         clearTimeout(timer);
         $("btnReport").disabled = false;

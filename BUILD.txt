@@ -1,3 +1,3 @@
 ﻿# Deploy build marker - do not remove
-BUILD_ID=0.9.3-inline
-COMMIT_HINT=collect-inline-oxylabs
+BUILD_ID=0.9.4-fast-oxylabs
+COMMIT_HINT=faster-live-pulls-fix-failed-to-fetch

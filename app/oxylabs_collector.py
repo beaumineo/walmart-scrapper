@@ -9,6 +9,7 @@ Env: OXYLABS_USERNAME / OXYLABS_PASSWORD
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -119,7 +120,7 @@ def fetch_walmart_search(
     if len(postal) == 5:
         payload["delivery_zip"] = postal
 
-    timeout = max(60, int(cfg.timeout_sec) + 30)
+    timeout = max(45, min(75, int(cfg.timeout_sec) + 25))
     resp = requests.post(
         "https://realtime.oxylabs.io/v1/queries",
         auth=(cfg.oxylabs_username, cfg.oxylabs_password),
@@ -182,6 +183,11 @@ def collect_store_via_oxylabs(
         }
 
     queries = queries or list(cfg.queries)
+    # On hosted, prefer fewer queries so browser requests don't drop mid-wait.
+    if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"):
+        if len(queries) > 2:
+            queries = list(queries)[:2]
+
     all_products: List[Dict[str, Any]] = []
     seen = set()
     notes: List[str] = []
@@ -190,7 +196,8 @@ def collect_store_via_oxylabs(
     for q in queries:
         attempts += 1
         try:
-            time.sleep(max(0.5, cfg.min_delay_sec * 0.3))
+            # Keep gap tiny — Oxylabs already rate-limits server-side.
+            time.sleep(0.2)
             result = fetch_walmart_search(
                 q, store_id=str(store_id), postal_code=postal_code, cfg=cfg
             )
@@ -213,6 +220,9 @@ def collect_store_via_oxylabs(
                         continue
                     seen.add(pid)
                     all_products.append(p)
+                # First successful query is enough for a usable report.
+                if all_products:
+                    break
             else:
                 notes.append(
                     f"oxylabs empty store={store_id} query={q} "
