@@ -8,61 +8,50 @@ Backend module: **ZIP → stores → store-scoped prices → ranked deals**.
 | M1 Location | Done — `/api/stores` |
 | M2 Prices | Done — store-scoped collector |
 | M3 Deal engine | Done — `why_deal`, thresholds |
+| M4 API + handoff | Done — `docs/API.md`, `docs/HANDOFF.md` |
+| M5 Final QA | Done — `docs/ACCEPTANCE_M5.md` |
 
-## Same-list bug (fixed)
+## Production
 
-National `/shop/deals/clearance` returned the same products for every store. That hub is disabled; sample catalogs are partitioned by `store_id`.
+https://walmart-scrapper-production.up.railway.app  
+Health: `/health` (`milestone: 5`) · Swagger: `/docs`
 
 ## Local run
 
 ```powershell
 cd d:\E\Working_now\walmart
 pip install -r requirements.txt
-# optional live scraping extras:
-# pip install -r requirements-collector.txt
 copy .env.example .env
+# set OXYLABS_USERNAME / OXYLABS_PASSWORD
 cd app
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-Open http://127.0.0.1:8000
+## Client integration
 
-## Deploy to Vercel (client demo)
+See **`docs/HANDOFF.md`** and **`docs/API.md`**.
 
-Vercel runs this as a FastAPI serverless app (`app/main.py`).
-
-**Reliable by default:** on Vercel, `mode=auto` serves **store-unique sample deals** (no proxy, no Walmart bot timeouts). Live scraping needs `PROXIES` + `WALMART_FORCE_LIVE=1` and often still fails on short serverless limits — keep sample for client demos.
-
-```bash
-# from repo root
-npm i -g vercel   # once
-vercel login
-vercel            # preview
-vercel --prod     # production URL for the client
+```text
+GET /api/stores?zip=90210
+GET /api/deals?zip=90210&store_id=5686&min_discount_pct=20&mode=live
 ```
 
-Or connect the GitHub repo in the Vercel dashboard → Import → Root Directory = repo root → Deploy.
+Use a client timeout ≥ 120s for live deals.
 
-### Env vars (optional)
+## Env (important)
 
 | Var | Purpose |
 |-----|---------|
-| `PROXIES` | Bright Data etc. for live (local / forced) |
-| `WALMART_FORCE_LIVE=1` | Attempt live on Vercel (not recommended for demos) |
-| `DEAL_MIN_DISCOUNT_PCT` | M3 threshold (default 20) |
+| `OXYLABS_USERNAME` / `OXYLABS_PASSWORD` | Live store-scoped pulls |
+| `WALMART_COLLECT_ENGINE=auto` | Collector order |
+| `API_KEY` | Optional; require `X-API-Key` on `/api/*` |
+| `CORS_ALLOW_ORIGINS` | Comma-separated origins (default `*`) |
+| `RATE_LIMIT_PER_MIN` | Default 60; `0` disables |
+| `DEAL_MIN_DISCOUNT_PCT` | M3 slider floor (default 20) |
 
-### Client test checklist
+## Acceptance
 
-1. Open the Vercel URL  
-2. ZIP `90210` → Find stores → pick store A → Generate report  
-3. Pick store B → Generate report → **lists should differ**  
-4. Each deal shows **why_deal**
-
-## APIs
-
-| Endpoint | Notes |
-|----------|--------|
-| `GET /api/stores?zip=` | M1 |
-| `GET /api/deals?zip=&store_id=&mode=sample\|auto\|live` | M2+M3 |
-| `GET /api/deals/config` | Thresholds |
-| `GET /health` | `milestone: 3` |
+```powershell
+$env:PYTHONPATH="d:\E\Working_now\walmart\app"
+python scripts\m5_acceptance.py
+```

@@ -1,0 +1,115 @@
+{
+  "milestone": 5,
+  "elapsed_sec": 63.3,
+  "pass": true,
+  "results": [
+    {
+      "check": "health_milestone_5",
+      "ok": true,
+      "detail": "1.0.0"
+    },
+    {
+      "check": "deals_config",
+      "ok": true
+    },
+    {
+      "check": "stores_for_zip",
+      "zip": "90210",
+      "region": "CA",
+      "ok": true,
+      "count": 5,
+      "store_id": "5686"
+    },
+    {
+      "check": "stores_for_zip",
+      "zip": "10001",
+      "region": "NY",
+      "ok": true,
+      "count": 5,
+      "store_id": "3520"
+    },
+    {
+      "check": "stores_for_zip",
+      "zip": "75201",
+      "region": "TX",
+      "ok": true,
+      "count": 5,
+      "store_id": "3341"
+    },
+    {
+      "check": "stores_for_zip",
+      "zip": "30301",
+      "region": "GA",
+      "ok": true,
+      "count": 5,
+      "store_id": "3775"
+    },
+    {
+      "check": "stores_for_zip",
+      "zip": "90810",
+      "region": "CA",
+      "ok": true,
+      "count": 5,
+      "store_id": "5602"
+    },
+    {
+      "check": "stores_for_zip",
+      "zip": "60601",
+      "region": "IL",
+      "ok": true,
+      "count": 5,
+      "store_id": "1938"
+    },
+    {
+      "check": "stores_for_zip",
+      "zip": "98101",
+      "region": "WA",
+      "ok": true,
+      "count": 5,
+      "store_id": "3098"
+    },
+    {
+      "check": "live_deals",
+      "store_id": "5686",
+      "live_ok": true,
+      "mode": "live",
+      "count": 2,
+      "pids": [
+        "17892519574",
+        "8191452448"
+      ],
+      "why": true,
+      "rank": true
+    },
+    {
+      "check": "live_deals",
+      "store_id": "2568",
+      "live_ok": true,
+      "mode": "live",
+      "count": 2,
+      "pids": [
+        "18677520416",
+        "8191452448"
+      ],
+      "why": true,
+      "rank": true
+    },
+    {
+      "check": "no_clone_lists",
+      "ok": true,
+      "store_a": "5686",
+      "store_b": "2568"
+    },
+    {
+      "check": "slider_threshold",
+      "ok": true,
+      "store_id": "5686",
+      "ge_70": 0,
+      "ge_20": 2
+    },
+    {
+      "check": "live_backend",
+      "ok": true
+    }
+  ]
+}

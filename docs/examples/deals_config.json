@@ -1,0 +1,30 @@
+{
+  "thresholds": {
+    "min_discount_pct": 20.0,
+    "hidden_clearance_pct": 70.0,
+    "clearance_pct": 40.0,
+    "markdown_pct": 20.0,
+    "include_shelf": false,
+    "prefer_offer_flags": true,
+    "drop_online_only": true,
+    "max_deals": 60,
+    "deals_only": true
+  },
+  "env_keys": [
+    "DEAL_MIN_DISCOUNT_PCT",
+    "DEAL_HIDDEN_CLEARANCE_PCT",
+    "DEAL_CLEARANCE_PCT",
+    "DEAL_MARKDOWN_PCT",
+    "DEAL_INCLUDE_SHELF",
+    "DEAL_MAX_DEALS"
+  ],
+  "deal_types": [
+    "hidden_clearance",
+    "clearance",
+    "rollback",
+    "markdown",
+    "special_buy",
+    "shelf",
+    "minor_drop"
+  ]
+}

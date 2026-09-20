@@ -1,0 +1,46 @@
+{
+  "ok": true,
+  "zip_count": 42183,
+  "official_store_count": 4578,
+  "street_geocode_count": 204,
+  "proxy_enabled": true,
+  "version": "1.0.0",
+  "milestone": 5,
+  "milestones_complete": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "proxy_count": 1,
+  "engine": "auto",
+  "live_ready": true,
+  "backends": {
+    "oxylabs": true,
+    "scraperapi": false,
+    "unlocker": false,
+    "curl_proxy": true,
+    "brightdata_isp_blocked": false,
+    "reliable": true
+  },
+  "deal_thresholds": {
+    "min_discount_pct": 20.0,
+    "hidden_clearance_pct": 70.0,
+    "clearance_pct": 40.0,
+    "markdown_pct": 20.0,
+    "include_shelf": false,
+    "prefer_offer_flags": true,
+    "drop_online_only": true,
+    "max_deals": 60,
+    "deals_only": true
+  },
+  "auth_required": false,
+  "deploy": {
+    "vercel": false,
+    "railway": false,
+    "collect_inline": true,
+    "build": "1.0.0-m5"
+  }
+}

@@ -1,4 +1,4 @@
-# Walmart Deal Finder — Requirements (Milestone 0)
+# Walmart Deal Finder — Requirements (Milestone 0–5)
 
 **Product:** Backend module for [Hidden Clearances](https://www.hiddenclearances.com/)  
 **Scope:** ZIP → nearby Walmart stores → store-scoped prices → ranked markdown / clearance deals  
@@ -14,51 +14,28 @@ A **deal** is a product at the **selected store** where one or more apply:
 |------|---------|---------|
 | Markdown % | ≥ 20% | `(list_or_was − current) / list_or_was` |
 | Clearance | ≥ 40% or Walmart `clearance` flag | Strong cut |
-| Hidden clearance | ≥ 70% or deep clearance flag | “Hidden clearance” style |
-| Rollback | Walmart `rollback` flag | Counted even if % is lower |
+| Hidden clearance | ≥ 70% or deep clearance flag | Hidden clearance depth |
+| Rollback | Walmart `rollback` flag | Still subject to `min_discount_pct` floor |
 | Shelf (optional) | `DEAL_INCLUDE_SHELF=1` | Live shelf price without was/list |
 
-Tunable via env / `GET /api/deals/config` (`DEAL_MIN_DISCOUNT_PCT`, `DEAL_HIDDEN_CLEARANCE_PCT`, …).
+Tunable via env / `GET /api/deals/config`.
 
-Each deal row includes **`why_deal`** (human-readable reason) and **`rank_score`**.
+Each deal row includes **`why_deal`** and **`rank_score`**.
 
 ---
 
-## API output (agreed shape)
+## API (integration)
 
-### `GET /api/stores?zip=90210`
-Nearby stores: `store_id`, `name`, `address`, `city`, `state`, `zip`, `distance_miles`, …
+Primary:
 
-### `GET /api/deals?zip=90210&store_id=XXXX&min_discount_pct=20&mode=auto|live|sample`
-```json
-{
-  "zip": "90210",
-  "store": { "store_id": "...", "name": "...", "address": "..." },
-  "summary": { "deal_count": 0, "avg_discount_pct": 0, "max_discount_pct": 0, "total_savings_if_bought_all": 0 },
-  "deals": [
-    {
-      "deal_id": "...",
-      "title": "...",
-      "current_price": 0,
-      "list_price": 0,
-      "discount_pct": 0,
-      "savings": 0,
-      "deal_type": "hidden_clearance|clearance|rollback|markdown|shelf",
-      "confidence": "high|medium|low",
-      "why_deal": "…",
-      "rank_score": 0,
-      "url": "https://www.walmart.com/...",
-      "in_store": true
-    }
-  ],
-  "meta": { "data_mode": "live|live_cached|sample|failed", "live_ok": false, "deal_thresholds": {}, "milestone": 3 }
-}
-```
+- `GET /api/stores?zip=90210`
+- `GET /api/deals?zip=90210&store_id=XXXX&min_discount_pct=20&mode=live`
 
-### Also
-- `GET /api/prices?store_id=&zip=` — raw M2 price pull  
-- `GET /api/deals/config` — M3 thresholds  
-- `GET /health` — readiness + `milestone: 3`
+Also: `/api/deals/config`, `/api/report`, `/health`, OpenAPI at `/docs`.
+
+Full docs: `docs/API.md` · handoff: `docs/HANDOFF.md` · examples: `docs/examples/`.
+
+Optional auth: set `API_KEY` → require `X-API-Key` on `/api/*`.
 
 ---
 
@@ -66,26 +43,29 @@ Nearby stores: `store_id`, `name`, `address`, `city`, `state`, `zip`, `distance_
 
 | # | Criterion |
 |---|-----------|
-| 1 | Any US ZIP returns nearby Walmart stores (official list preferred) |
+| 1 | Any US ZIP returns nearby Walmart stores |
 | 2 | User can select a store by ID / name / address |
-| 3 | Report is **store-scoped** — stores must **not** share one national clearance list |
+| 3 | Report is store-scoped — stores must not share one national list |
 | 4 | Deals ranked with `why_deal` and tunable % thresholds |
-| 5 | Sample / demo mode works without proxy (`mode=sample`); live needs `PROXIES` |
+| 5 | Live pulls via Oxylabs (or ScraperAPI / Unlocker) |
 | 6 | Test ZIPs: `90210`, `10001`, `75201`, `30301`, `90810` |
 
 ---
 
 ## Milestone map
 
-| M | Payment | Deliverable |
-|---|---------|-------------|
-| 0 Kickoff | $600 | This requirements doc |
-| 1 Location | $400 | `/api/stores` + UI store picker |
-| 2 Prices | $400 | Store-scoped collection + pulls under `data/pulls/` |
-| 3 Deal engine | $300 | Scoring, ranking, `why_deal`, thresholds |
+| M | Payment | Deliverable | Status |
+|---|---------|-------------|--------|
+| 0 Kickoff | $600 | This requirements doc | Done |
+| 1 Location | $400 | `/api/stores` + UI store picker | Done |
+| 2 Prices | $400 | Store-scoped collection + `data/pulls/` | Done |
+| 3 Deal engine | $300 | Scoring, ranking, `why_deal`, thresholds | Done |
+| 4 API + handoff | $200 | Documented API + examples + handoff notes | Done |
+| 5 Final QA | $100 | Multi-region acceptance + production-ready | Done |
+| **Total** | **$2,000** | | |
 
 ---
 
 ## Known constraint (live)
 
-Walmart blocks many automated requests. Live pulls require a residential/ISP proxy (e.g. Bright Data). The app **never** falls back to the national `/shop/deals/clearance` hub for store reports — that was the root cause of identical product lists across stores.
+Walmart blocks many automated requests. Live pulls use Oxylabs Walmart Search (`store_id` + `delivery_zip`). The app never falls back to the national `/shop/deals/clearance` hub for store reports.

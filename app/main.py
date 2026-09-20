@@ -10,26 +10,35 @@ _APP_DIR = Path(__file__).resolve().parent
 if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from api_guard import enforce_rate_limit, require_api_key
 from walmart_core import build_report, find_stores_near_zip, load_zips
 
 app = FastAPI(
     title="Walmart In-Store Deal Finder (Hidden Clearances)",
     description=(
-        "ZIP → nearby store → live in-store markdown / hidden-clearance deals "
-        "for that Walmart only. No demo catalogs. No national online-only lists."
+        "Integration API for Hidden Clearances.\n\n"
+        "**Flow:** `GET /api/stores?zip=` → pick a store → "
+        "`GET /api/deals?zip=&store_id=&min_discount_pct=`.\n\n"
+        "Live pulls are store-scoped (Oxylabs). Docs: `/docs`, `docs/API.md`, `docs/HANDOFF.md`."
     ),
-    version="0.9.1",
+    version="1.0.0",
+    contact={"name": "Hidden Clearances Walmart module"},
 )
 
+_cors = [
+    o.strip()
+    for o in (os.environ.get("CORS_ALLOW_ORIGINS") or "*").split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,15 +61,16 @@ def _warmup() -> None:
         pass
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.get("/health")
+@app.get("/health", tags=["ops"])
 def health():
     from config import get_collector_config
     from client_collector import client_backends_status, client_live_ready
+    from api_guard import configured_api_key
 
     zips = load_zips()
     store_count = 0
@@ -88,14 +98,15 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "0.9.4",
-        "milestone": 3,
-        "milestones_complete": [1, 2, 3],
+        "version": "1.0.0",
+        "milestone": 5,
+        "milestones_complete": [0, 1, 2, 3, 4, 5],
         "proxy_count": len(cfg.proxies),
         "engine": cfg.collect_engine,
         "live_ready": client_live_ready(cfg),
         "backends": backends,
         "deal_thresholds": deal_thr,
+        "auth_required": bool(configured_api_key()),
         "deploy": {
             "vercel": bool(os.environ.get("VERCEL")),
             "railway": bool(
@@ -109,12 +120,12 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "0.9.4-fast-oxylabs",
+            "build": "1.0.0-m5",
         },
     }
 
 
-@app.get("/api/backends")
+@app.get("/api/backends", tags=["ops"], dependencies=[Depends(require_api_key)])
 def api_backends():
     """Which live collectors are configured (no secrets returned)."""
     from client_collector import client_backends_status, client_live_ready, setup_required_message
@@ -165,7 +176,7 @@ def _upsert_env(path: Path, updates: Dict[str, str]) -> None:
     path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
 
 
-@app.post("/api/backends/configure")
+@app.post("/api/backends/configure", tags=["ops"], dependencies=[Depends(require_api_key)])
 def api_backends_configure(body: LiveBackendConfig):
     """
     Save a commercial live backend into .env (local/dev only).
@@ -218,12 +229,21 @@ def api_backends_configure(body: LiveBackendConfig):
     }
 
 
-@app.get("/api/stores")
+@app.get(
+    "/api/stores",
+    tags=["integration"],
+    dependencies=[Depends(require_api_key)],
+    summary="ZIP → nearby Walmart stores",
+)
 def api_stores(
+    request: Request,
+    response: Response,
     zip: str = Query(..., min_length=3, max_length=10, description="US ZIP code"),
     radius_miles: float = Query(50, ge=1, le=100),
     limit: int = Query(100, ge=1, le=200),
 ):
+    for k, v in enforce_rate_limit(request).items():
+        response.headers[k] = v
     try:
         loc, stores = find_stores_near_zip(zip, radius_miles=radius_miles, limit=limit)
     except ValueError as e:
@@ -245,7 +265,7 @@ def api_stores(
     }
 
 
-@app.get("/api/prices")
+@app.get("/api/prices", tags=["collector"], dependencies=[Depends(require_api_key)])
 def api_prices(
     store_id: str = Query(..., description="Walmart store ID"),
     zip: Optional[str] = Query(None),
@@ -270,7 +290,7 @@ def api_prices(
     return payload
 
 
-@app.get("/api/item/{item_id}")
+@app.get("/api/item/{item_id}", tags=["collector"], dependencies=[Depends(require_api_key)])
 def api_item(item_id: str):
     """Single-item price pull (triposat /ip/{id} style)."""
     from http_collector import fetch_item
@@ -285,7 +305,7 @@ def api_item(item_id: str):
     return result
 
 
-@app.get("/api/history/{product_id}")
+@app.get("/api/history/{product_id}", tags=["collector"], dependencies=[Depends(require_api_key)])
 def api_history(
     product_id: str,
     store_id: Optional[str] = Query(None),
@@ -297,7 +317,7 @@ def api_history(
     return {"product_id": product_id, "store_id": store_id, "count": len(rows), "history": rows}
 
 
-@app.get("/api/deals/config")
+@app.get("/api/deals/config", tags=["integration"], dependencies=[Depends(require_api_key)])
 def api_deals_config():
     """Milestone 3 tunable deal thresholds (also set via DEAL_* env vars)."""
     from deal_engine import DealThresholds
@@ -324,8 +344,15 @@ def api_deals_config():
     }
 
 
-@app.get("/api/deals")
+@app.get(
+    "/api/deals",
+    tags=["integration"],
+    dependencies=[Depends(require_api_key)],
+    summary="Store → ranked in-store deals report",
+)
 def api_deals(
+    request: Request,
+    response: Response,
     zip: str = Query(..., min_length=3, max_length=10),
     store_id: str = Query(...),
     radius_miles: float = Query(50, ge=1, le=100),
@@ -337,7 +364,10 @@ def api_deals(
 
     Always prefers live store-scoped collection (no demo / sample catalog).
     Returns markdown / clearance / hidden-clearance deals only (M3).
+    Live Oxylabs pulls often take 20–90 seconds — use a client timeout ≥ 120s.
     """
+    for k, v in enforce_rate_limit(request).items():
+        response.headers[k] = v
     prefer_live = True
     try:
         return build_report(
@@ -353,13 +383,17 @@ def api_deals(
         raise HTTPException(status_code=502, detail=f"Deal report failed: {e}") from e
 
 
-@app.get("/api/report")
+@app.get("/api/report", tags=["integration"], dependencies=[Depends(require_api_key)])
 def api_report(
+    request: Request,
+    response: Response,
     zip: str = Query(...),
     store_id: Optional[str] = Query(None),
     radius_miles: float = Query(50, ge=1, le=100),
     min_discount_pct: float = Query(20, ge=0, le=95),
 ):
+    for k, v in enforce_rate_limit(request).items():
+        response.headers[k] = v
     try:
         _loc, stores = find_stores_near_zip(zip, radius_miles=radius_miles, limit=50)
     except ValueError as e:
@@ -384,7 +418,7 @@ def api_report(
     return report
 
 
-@app.get("/api/scans")
+@app.get("/api/scans", tags=["ops"], dependencies=[Depends(require_api_key)])
 def api_scans(
     store_id: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
@@ -395,7 +429,7 @@ def api_scans(
     return {"count": len(scans), "scans": scans}
 
 
-@app.get("/api/scans/{scan_id}")
+@app.get("/api/scans/{scan_id}", tags=["ops"], dependencies=[Depends(require_api_key)])
 def api_scan_detail(scan_id: int):
     from scan_store import get_scan_deals
 

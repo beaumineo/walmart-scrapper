@@ -1,0 +1,88 @@
+{
+  "zip": "90210",
+  "location": {
+    "city": "Los Angeles",
+    "state": "CA",
+    "lat": 34.0938877,
+    "lon": -118.4112858
+  },
+  "radius_miles": 50.0,
+  "count": 5,
+  "stores": [
+    {
+      "store_id": "5686",
+      "name": "Walmart Supercenter",
+      "address": "1301 N Victory Pl",
+      "city": "Burbank",
+      "state": "CA",
+      "zip": "91502",
+      "lat": 34.1878463,
+      "lon": -118.3235988,
+      "distance_miles": 8.2,
+      "phone": null,
+      "source": "walmart_store_list",
+      "coord_precision": "street_geocode",
+      "store_url": "https://www.walmart.com/store/5686-burbank-ca"
+    },
+    {
+      "store_id": "2568",
+      "name": "Walmart Supercenter",
+      "address": "8333 Van Nuys Blvd",
+      "city": "Panorama City",
+      "state": "CA",
+      "zip": "91402",
+      "lat": 34.2226836,
+      "lon": -118.4496195,
+      "distance_miles": 9.16,
+      "phone": null,
+      "source": "walmart_store_list",
+      "coord_precision": "street_geocode",
+      "store_url": "https://www.walmart.com/store/2568-panorama-city-ca"
+    },
+    {
+      "store_id": "5605",
+      "name": "Walmart Supercenter",
+      "address": "14530 Nordhoff St",
+      "city": "Panorama City",
+      "state": "CA",
+      "zip": "91402",
+      "lat": 34.2344724,
+      "lon": -118.448672,
+      "distance_miles": 9.95,
+      "phone": null,
+      "source": "walmart_store_list",
+      "coord_precision": "street_geocode",
+      "store_url": "https://www.walmart.com/store/5605-panorama-city-ca"
+    },
+    {
+      "store_id": "5604",
+      "name": "Walmart Supercenter",
+      "address": "14441 Inglewood Ave",
+      "city": "Hawthorne",
+      "state": "CA",
+      "zip": "90250",
+      "lat": 33.9002287,
+      "lon": -118.362415,
+      "distance_miles": 13.67,
+      "phone": null,
+      "source": "walmart_store_list",
+      "coord_precision": "street_geocode",
+      "store_url": "https://www.walmart.com/store/5604-hawthorne-ca"
+    },
+    {
+      "store_id": "5152",
+      "name": "Walmart Supercenter",
+      "address": "6433 Fallbrook Ave",
+      "city": "West Hills",
+      "state": "CA",
+      "zip": "91307",
+      "lat": 34.1881762,
+      "lon": -118.62528,
+      "distance_miles": 13.86,
+      "phone": null,
+      "source": "walmart_store_list",
+      "coord_precision": "street_geocode",
+      "store_url": "https://www.walmart.com/store/5152-west-hills-ca"
+    }
+  ]
+}
