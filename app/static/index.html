@@ -1007,12 +1007,12 @@
           `;
           renderEmpty({
             title: `No deals at >=${minPct}%`,
-            body: `${storeName} returned live prices, but none meet your ${minPct}% minimum. Lower the slider to see smaller markdowns.`,
+            body: `${storeName} loaded live in-store prices, but none are currently ${minPct}%+ off vs was/list. Lower the minimum discount to see more.`,
             minPct,
             storeId,
           });
           statusEl.textContent = `Live check done for #${storeId}: 0 deals at >=${minPct}%.`;
-          metaEl.textContent = "Lower the discount slider to include smaller markdowns.";
+          metaEl.textContent = "Only products meeting your discount threshold are shown.";
           return;
         }
 

@@ -715,16 +715,14 @@ def build_report(
                         min_discount_pct=min_discount_pct,
                         include_shelf=False,
                     )
-                    # Keep %-qualified deals, plus flagged rollback/clearance
-                    # (Oxylabs often omits list/was on those rows).
-                    def _passes_slider(d: Dict[str, Any]) -> bool:
-                        pct = float(d.get("discount_pct") or 0)
-                        if pct + 1e-9 >= float(min_discount_pct):
-                            return True
-                        dtype = str(d.get("deal_type") or "").lower()
-                        return dtype in ("rollback", "clearance", "hidden_clearance")
-
-                    deals_dicts = [d for d in deals_dicts if _passes_slider(d)]
+                    # Strict threshold: only deals at/above the slider %.
+                    deals_dicts = [
+                        d
+                        for d in deals_dicts
+                        if float(d.get("discount_pct") or 0) + 1e-9
+                        >= float(min_discount_pct)
+                        and d.get("list_price") is not None
+                    ]
                     live_product_count = len(pull.products)
                     for d in deals_dicts:
                         d["store_id"] = sid

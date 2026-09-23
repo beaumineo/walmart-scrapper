@@ -177,19 +177,15 @@ def score_product(
     if compare:
         savings = round(compare - current, 2)
         pct = round((savings / compare) * 100, 1)
-        # Hard floor for %-based deals. Flagged rollback/clearance can pass below floor
-        # only when prefer_offer_flags is on (M0 rule: rollback counted even if % lower).
+        # Hard floor: only show deals at/above the user's threshold.
+        if pct < thresholds.min_discount_pct:
+            return None
         deal_type, confidence, why = classify_deal(
             discount_pct=pct,
             offer_type=offer_type,
             is_price_event=is_event,
             thresholds=thresholds,
         )
-        flagged = deal_type in ("rollback", "clearance", "hidden_clearance")
-        if pct < thresholds.min_discount_pct and not (
-            thresholds.prefer_offer_flags and flagged
-        ):
-            return None
         if deal_type in ("shelf", "minor_drop"):
             if not thresholds.include_shelf:
                 return None
@@ -220,44 +216,8 @@ def score_product(
             "notes": why_text,
         }
     else:
-        # Oxylabs often returns Rollbacks/Clearance without strikethrough prices.
-        # Still surface them as flagged deals so stores aren't empty.
-        ot = (offer_type or "").lower().strip()
-        section = str(p.get("section_title") or "").lower()
-        flagged_rollback = ot == "rollback" or "rollback" in section
-        flagged_clearance = ot == "clearance" or "clearance" in section
-        if not (
-            thresholds.prefer_offer_flags and (flagged_rollback or flagged_clearance)
-        ):
-            return None
-        deal_type = "rollback" if flagged_rollback else "clearance"
-        label = "Walmart rollback" if flagged_rollback else "Walmart clearance"
-        why_text = (
-            f"{label} at this store (list/was price not in live feed)"
-        )
-        row = {
-            "deal_id": f"live-{store_id}-{pid}",
-            "store_id": store_id,
-            "product_id": pid,
-            "title": p.get("title"),
-            "brand": p.get("brand"),
-            "category": p.get("category") or "General",
-            "current_price": round(current, 2),
-            "list_price": None,
-            "discount_pct": 0.0,
-            "savings": 0.0,
-            "deal_type": deal_type,
-            "offer_type": ot or deal_type,
-            "confidence": "medium",
-            "url": p.get("url"),
-            "image_url": p.get("image_url"),
-            "in_store": True if p.get("in_store") is None else p.get("in_store"),
-            "availability": p.get("availability"),
-            "seller_type": p.get("seller_type"),
-            "is_price_event": True,
-            "why_deal": why_text,
-            "notes": why_text,
-        }
+        # No list/was price → cannot prove discount % vs the slider. Skip.
+        return None
 
     row["rank_score"] = round(rank_score(row), 2)
     return row
@@ -285,12 +245,10 @@ def detect_deals(
         ):
             continue
         pct = float(row.get("discount_pct") or 0)
-        dtype = str(row.get("deal_type") or "")
-        flagged = dtype in ("rollback", "clearance", "hidden_clearance")
-        # Flagged rollbacks/clearance without % still pass the slider.
-        if pct < thr.min_discount_pct and not (
-            thr.prefer_offer_flags and flagged
-        ):
+        if pct < thr.min_discount_pct:
+            continue
+        # Require a real list/was compare price (no zero-% placeholder rows).
+        if not row.get("list_price"):
             continue
         deals.append(row)
 

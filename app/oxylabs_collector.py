@@ -205,59 +205,66 @@ def collect_store_via_oxylabs(
         }
 
     primary = list(queries or cfg.queries or DEFAULT_QUERIES)
-    # Always ensure rollback is tried — many stores have empty clearance feeds.
     for q in DEFAULT_QUERIES:
         if q not in primary:
             primary.append(q)
+    # Also queue fallbacks so we can collect more items with list/was prices.
+    queued = primary + [q for q in FALLBACK_QUERIES if q not in primary]
 
     all_products: List[Dict[str, Any]] = []
     seen = set()
     notes: List[str] = []
     attempts = 0
 
-    def _run_queries(qlist: List[str]) -> None:
-        nonlocal attempts
-        for q in qlist:
-            if attempts >= 4 and all_products:
-                break
-            attempts += 1
-            try:
-                time.sleep(0.15)
-                result = fetch_walmart_search(
-                    q, store_id=str(store_id), postal_code=postal_code, cfg=cfg
-                )
-                batch = result.get("products") or []
-                loc = result.get("location") or {}
-                loc_bit = ""
-                if isinstance(loc, dict) and loc:
-                    loc_bit = (
-                        f" loc_store={loc.get('store_id')} "
-                        f"loc_zip={loc.get('zip_code') or loc.get('zipcode')}"
-                    )
-                if batch:
-                    notes.append(
-                        f"oxylabs ok store={store_id} zip={postal_code or ''} "
-                        f"query={q} n={len(batch)} raw={result.get('raw_count')}{loc_bit}"
-                    )
-                    for p in batch:
-                        pid = p.get("product_id")
-                        if not pid or pid in seen:
-                            continue
-                        seen.add(pid)
-                        all_products.append(p)
-                else:
-                    notes.append(
-                        f"oxylabs empty store={store_id} query={q} "
-                        f"raw={result.get('raw_count')}"
-                    )
-            except Exception as e:
-                notes.append(f"oxylabs error query={q}: {type(e).__name__}: {e}")
+    def _with_was_count() -> int:
+        n = 0
+        for p in all_products:
+            cur = p.get("current_price")
+            was = p.get("was_price") or p.get("list_price")
+            if cur and was and float(was) > float(cur):
+                n += 1
+        return n
 
-    _run_queries(primary)
-    # If still empty, try broader markdown-style queries.
-    if not all_products:
-        extra = [q for q in FALLBACK_QUERIES if q not in primary]
-        _run_queries(extra)
+    for q in queued:
+        # Stop once we have enough priced markdowns for a solid report.
+        if attempts >= 3 and _with_was_count() >= 5:
+            break
+        if attempts >= 4:
+            break
+        attempts += 1
+        try:
+            time.sleep(0.15)
+            result = fetch_walmart_search(
+                q, store_id=str(store_id), postal_code=postal_code, cfg=cfg
+            )
+            batch = result.get("products") or []
+            loc = result.get("location") or {}
+            loc_bit = ""
+            if isinstance(loc, dict) and loc:
+                loc_bit = (
+                    f" loc_store={loc.get('store_id')} "
+                    f"loc_zip={loc.get('zip_code') or loc.get('zipcode')}"
+                )
+            if batch:
+                notes.append(
+                    f"oxylabs ok store={store_id} zip={postal_code or ''} "
+                    f"query={q} n={len(batch)} raw={result.get('raw_count')}{loc_bit}"
+                )
+                for p in batch:
+                    pid = p.get("product_id")
+                    if not pid or pid in seen:
+                        continue
+                    seen.add(pid)
+                    all_products.append(p)
+            else:
+                notes.append(
+                    f"oxylabs empty store={store_id} query={q} "
+                    f"raw={result.get('raw_count')}"
+                )
+        except Exception as e:
+            notes.append(f"oxylabs error query={q}: {type(e).__name__}: {e}")
+
+    notes.append(f"priced_markdown_candidates={_with_was_count()}")
 
     return {
         "ok": bool(all_products),
