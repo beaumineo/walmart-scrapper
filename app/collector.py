@@ -65,6 +65,7 @@ class PriceItem:
     rating: Optional[str] = None
     review_count: Optional[int] = None
     query: Optional[str] = None
+    section_title: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -130,6 +131,7 @@ def _dict_to_item(d: Dict[str, Any]) -> PriceItem:
         rating=d.get("rating"),
         review_count=d.get("review_count"),
         query=d.get("query"),
+        section_title=d.get("section_title"),
     )
 
 

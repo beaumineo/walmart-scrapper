@@ -9,7 +9,6 @@ Env: OXYLABS_USERNAME / OXYLABS_PASSWORD
 """
 from __future__ import annotations
 
-import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -50,6 +49,7 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
     was = _num(
         price_obj.get("price_strikethrough")
         or price_obj.get("was_price")
+        or price_obj.get("price_was")
         or raw.get("price_strikethrough")
     )
     url = general.get("url") or raw.get("url") or ""
@@ -59,6 +59,9 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
 
     out_of_stock = bool(general.get("out_of_stock") or raw.get("out_of_stock"))
     is_reduced = bool(was and current and was > current)
+    section = str(general.get("section_title") or raw.get("section_title") or "").strip()
+    badge = str(general.get("badge") or "").strip().lower()
+    offer_type = _infer_offer_type(query=query, section_title=section, badge=badge)
 
     item: Dict[str, Any] = {
         "product_id": pid or title[:40],
@@ -68,9 +71,9 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
         "current_price": current,
         "list_price": was,
         "was_price": was,
-        "offer_type": None,
+        "offer_type": offer_type,
         "is_reduced": is_reduced,
-        "is_price_event": is_reduced,
+        "is_price_event": bool(is_reduced or offer_type),
         "seller_name": seller.get("name") or raw.get("seller_name"),
         "availability": "Out of stock" if out_of_stock else "In stock",
         "in_store": True,
@@ -78,10 +81,29 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
         "url": url or None,
         "image_url": image,
         "query": query,
+        "section_title": section or None,
         "store_id": str(store_id),
         "collection_source": "oxylabs_walmart_search",
     }
     return item
+
+
+def _infer_offer_type(*, query: str, section_title: str, badge: str) -> Optional[str]:
+    blob = f"{query} {section_title} {badge}".lower()
+    if "rollback" in blob:
+        return "rollback"
+    if "clearance" in blob:
+        return "clearance"
+    if "special buy" in blob or "specialbuy" in blob:
+        return "specialbuy"
+    if "reduced" in blob or "markdown" in blob:
+        return "reducedprice"
+    return None
+
+
+# Fallback queries when primary ones return empty (common: clearance raw=0 but rollbacks exist).
+DEFAULT_QUERIES = ("clearance", "rollback")
+FALLBACK_QUERIES = ("special buy", "markdown", "reduced price")
 
 
 def _extract_results(payload: Dict[str, Any]) -> tuple:
@@ -182,54 +204,60 @@ def collect_store_via_oxylabs(
             "engine": "oxylabs",
         }
 
-    queries = queries or list(cfg.queries)
-    # On hosted, prefer fewer queries so browser requests don't drop mid-wait.
-    if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"):
-        if len(queries) > 2:
-            queries = list(queries)[:2]
+    primary = list(queries or cfg.queries or DEFAULT_QUERIES)
+    # Always ensure rollback is tried — many stores have empty clearance feeds.
+    for q in DEFAULT_QUERIES:
+        if q not in primary:
+            primary.append(q)
 
     all_products: List[Dict[str, Any]] = []
     seen = set()
     notes: List[str] = []
     attempts = 0
 
-    for q in queries:
-        attempts += 1
-        try:
-            # Keep gap tiny — Oxylabs already rate-limits server-side.
-            time.sleep(0.2)
-            result = fetch_walmart_search(
-                q, store_id=str(store_id), postal_code=postal_code, cfg=cfg
-            )
-            batch = result.get("products") or []
-            loc = result.get("location") or {}
-            loc_bit = ""
-            if isinstance(loc, dict) and loc:
-                loc_bit = (
-                    f" loc_store={loc.get('store_id')} "
-                    f"loc_zip={loc.get('zip_code')}"
+    def _run_queries(qlist: List[str]) -> None:
+        nonlocal attempts
+        for q in qlist:
+            if attempts >= 4 and all_products:
+                break
+            attempts += 1
+            try:
+                time.sleep(0.15)
+                result = fetch_walmart_search(
+                    q, store_id=str(store_id), postal_code=postal_code, cfg=cfg
                 )
-            if batch:
-                notes.append(
-                    f"oxylabs ok store={store_id} zip={postal_code or ''} "
-                    f"query={q} n={len(batch)} raw={result.get('raw_count')}{loc_bit}"
-                )
-                for p in batch:
-                    pid = p.get("product_id")
-                    if not pid or pid in seen:
-                        continue
-                    seen.add(pid)
-                    all_products.append(p)
-                # First successful query is enough for a usable report.
-                if all_products:
-                    break
-            else:
-                notes.append(
-                    f"oxylabs empty store={store_id} query={q} "
-                    f"raw={result.get('raw_count')}"
-                )
-        except Exception as e:
-            notes.append(f"oxylabs error query={q}: {type(e).__name__}: {e}")
+                batch = result.get("products") or []
+                loc = result.get("location") or {}
+                loc_bit = ""
+                if isinstance(loc, dict) and loc:
+                    loc_bit = (
+                        f" loc_store={loc.get('store_id')} "
+                        f"loc_zip={loc.get('zip_code') or loc.get('zipcode')}"
+                    )
+                if batch:
+                    notes.append(
+                        f"oxylabs ok store={store_id} zip={postal_code or ''} "
+                        f"query={q} n={len(batch)} raw={result.get('raw_count')}{loc_bit}"
+                    )
+                    for p in batch:
+                        pid = p.get("product_id")
+                        if not pid or pid in seen:
+                            continue
+                        seen.add(pid)
+                        all_products.append(p)
+                else:
+                    notes.append(
+                        f"oxylabs empty store={store_id} query={q} "
+                        f"raw={result.get('raw_count')}"
+                    )
+            except Exception as e:
+                notes.append(f"oxylabs error query={q}: {type(e).__name__}: {e}")
+
+    _run_queries(primary)
+    # If still empty, try broader markdown-style queries.
+    if not all_products:
+        extra = [q for q in FALLBACK_QUERIES if q not in primary]
+        _run_queries(extra)
 
     return {
         "ok": bool(all_products),

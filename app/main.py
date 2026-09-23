@@ -98,7 +98,7 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "1.0.0",
+        "version": "1.0.1",
         "milestone": 5,
         "milestones_complete": [0, 1, 2, 3, 4, 5],
         "proxy_count": len(cfg.proxies),
@@ -120,7 +120,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.0.0-m5",
+            "build": "1.0.1-rollback-coverage",
         },
     }
 

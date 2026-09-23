@@ -270,7 +270,7 @@ def get_collector_config() -> CollectorConfig:
     queries = (
         tuple(q.strip() for q in queries_raw.split(",") if q.strip())
         if queries_raw
-        else ("clearance",)
+        else ("clearance", "rollback")
     )
     rotate_raw = os.environ.get("WALMART_PROXY_ROTATE_SESSION", "1").strip().lower()
     rotate = rotate_raw in ("1", "true", "yes", "on")
