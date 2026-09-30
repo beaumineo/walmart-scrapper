@@ -837,10 +837,21 @@ def build_report(
             live_backend_ready = client_live_ready()
         except Exception:
             live_backend_ready = False
-        if collector_notes and len(str(collector_notes).strip()) > 8:
+        notes_l = str(collector_notes or "").lower()
+        if "oxylabs_auth_failed" in notes_l or "oxylabs auth failed" in notes_l:
             user_error = (
-                f"Could not load deals for store #{sid}. {collector_notes}"
+                f"Could not load deals for store #{sid}. "
+                "Oxylabs login was rejected (HTTP 401). "
+                "Update OXYLABS_USERNAME and OXYLABS_PASSWORD in Railway Variables, "
+                "then redeploy and try again."
             )
+            data_mode = "auth_failed"
+        elif collector_notes and len(str(collector_notes).strip()) > 8:
+            # Keep UI readable — don't dump every query error line.
+            short = str(collector_notes)
+            if len(short) > 280:
+                short = short[:277] + "..."
+            user_error = f"Could not load deals for store #{sid}. {short}"
         elif live_backend_ready:
             user_error = (
                 f"Could not load deals for store #{sid}. "
@@ -852,7 +863,8 @@ def build_report(
                 f"Could not load deals for store #{sid}. "
                 "Set OXYLABS_USERNAME and OXYLABS_PASSWORD on the server, then retry."
             )
-        data_mode = "failed"
+        if data_mode != "auth_failed":
+            data_mode = "failed"
         deals_dicts = []
         live_product_count = 0
 

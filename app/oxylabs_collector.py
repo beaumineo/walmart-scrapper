@@ -403,6 +403,7 @@ def collect_store_via_oxylabs(
                 "page": page,
                 "result": None,
                 "error": f"{type(e).__name__}: {e}",
+                "auth_failed": "auth failed" in str(e).lower() or "401" in str(e),
             }
 
     def _run_batch(jobs: List[tuple]) -> List[Dict[str, Any]]:
@@ -410,7 +411,6 @@ def collect_store_via_oxylabs(
         nonlocal attempts
         if not jobs:
             return []
-        # Hard cap remaining budget.
         remain = max_api_calls - attempts
         if remain <= 0:
             return []
@@ -426,7 +426,7 @@ def collect_store_via_oxylabs(
     def _apply_hits(hits: List[Dict[str, Any]]) -> Dict[str, bool]:
         """Ingest hits; return map of query -> had_products on page 1."""
         page1_ok: Dict[str, bool] = {}
-        # Stable-ish order for notes: by query then page.
+        auth_fail_count = 0
         hits_sorted = sorted(
             hits, key=lambda h: (str(h.get("query") or ""), int(h.get("page") or 1))
         )
@@ -434,7 +434,12 @@ def collect_store_via_oxylabs(
             q = str(hit.get("query") or "")
             page = int(hit.get("page") or 1)
             if not hit.get("ok"):
-                notes.append(f"oxylabs error query={q} page={page}: {hit.get('error')}")
+                if hit.get("auth_failed"):
+                    auth_fail_count += 1
+                else:
+                    notes.append(
+                        f"oxylabs error query={q} page={page}: {hit.get('error')}"
+                    )
                 if page == 1:
                     page1_ok[q] = False
                 continue
@@ -463,12 +468,40 @@ def collect_store_via_oxylabs(
                     f"oxylabs empty store={store_id} query={q} page={page} "
                     f"raw={result.get('raw_count')}"
                 )
+        if auth_fail_count:
+            notes.append(
+                "oxylabs_auth_failed: OXYLABS_USERNAME/PASSWORD rejected (HTTP 401). "
+                "Update credentials in Railway Variables and redeploy."
+            )
+            page1_ok.clear()
         return page1_ok
 
     t0 = time.time()
     # Wave 1: every query page 1 in parallel (fast first paint of coverage).
     wave1 = [(q, 1) for q in queued]
-    page1_ok = _apply_hits(_run_batch(wave1))
+    page1_hits = _run_batch(wave1)
+    # Fail fast: if the first wave is all auth failures, do not burn more credits.
+    auth_fails = sum(1 for h in page1_hits if h.get("auth_failed"))
+    if page1_hits and auth_fails == len(page1_hits):
+        notes.append(
+            "oxylabs_auth_failed: OXYLABS_USERNAME/PASSWORD rejected (HTTP 401). "
+            "Update credentials in Railway Variables and redeploy."
+        )
+        notes.append(
+            f"priced_markdown_candidates=0 unique_products=0 api_calls={attempts} "
+            f"parallel_workers={workers} elapsed_sec={round(time.time() - t0, 1)}"
+        )
+        return {
+            "ok": False,
+            "mode": "auth_failed",
+            "products": [],
+            "notes": "; ".join(n for n in notes if n),
+            "proxy_used": True,
+            "attempts": attempts or 1,
+            "engine": "oxylabs",
+        }
+
+    page1_ok = _apply_hits(page1_hits)
 
     # Wave 2: extra pages only for queries that returned something on page 1.
     wave2: List[tuple] = []
