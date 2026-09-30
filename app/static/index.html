@@ -1090,14 +1090,13 @@
             ? `<img class="deal-img" src="${escapeHtml(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
             : `<div class="deal-img placeholder">IMG</div>`;
           const stockLabel = (() => {
-            if (d.out_of_stock === true || String(d.stock_status || "").toLowerCase().includes("out")) {
-              return "Out of stock";
-            }
+            if (d.out_of_stock === true) return "Out of stock";
             if (d.pickup_available === true) return "In stock · pickup";
-            if (d.in_stock === true || d.availability) return String(d.availability || d.stock_status || "In stock");
-            return "Stock n/a";
+            if (d.availability) return String(d.availability);
+            if (d.in_stock === false) return "Out of stock";
+            return "In stock";
           })();
-          const stockClass = stockLabel.toLowerCase().includes("out") ? "chip stock out" : "chip stock";
+          const stockClass = stockLabel.toLowerCase().includes("out of stock") ? "chip stock out" : "chip stock";
           return `
           <article class="deal">
             <div class="${dealClass(pct)}">${hasMd ? Math.round(pct) + "%" : "-"}</div>

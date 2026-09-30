@@ -31,7 +31,7 @@ class DealThresholds:
     prefer_offer_flags: bool = True
     drop_online_only: bool = True
     drop_out_of_stock: bool = False
-    max_deals: int = 300
+    max_deals: int = 2000
     deals_only: bool = True  # drop minor_drop / shelf from output
 
     @classmethod
@@ -60,7 +60,7 @@ class DealThresholds:
             prefer_offer_flags=_b("DEAL_PREFER_OFFER_FLAGS", True),
             drop_online_only=_b("DEAL_DROP_ONLINE_ONLY", True),
             drop_out_of_stock=_b("DEAL_DROP_OOS", False),
-            max_deals=int(_f("DEAL_MAX_DEALS", 300)),
+            max_deals=int(_f("DEAL_MAX_DEALS", 2000)),
             deals_only=_b("DEAL_DEALS_ONLY", True),
         )
         if overrides:
@@ -142,12 +142,12 @@ def rank_score(deal: Dict[str, Any]) -> float:
         "minor_drop": 0,
     }.get(str(deal.get("deal_type") or ""), 0)
     stock_boost = 0.0
-    if deal.get("out_of_stock") is True or deal.get("in_stock") is False:
-        stock_boost = -45.0
+    if deal.get("out_of_stock") is True:
+        stock_boost = -50.0
     elif deal.get("pickup_available") is True:
-        stock_boost = 12.0
+        stock_boost = 15.0
     elif deal.get("in_stock") is True:
-        stock_boost = 6.0
+        stock_boost = 5.0
     return pct * 2.0 + min(savings, 80) * 0.35 + type_boost + conf * 5 + stock_boost
 
 
@@ -273,22 +273,21 @@ def detect_deals(
 
     deals.sort(
         key=lambda d: (
-            # Prefer items that look in-stock / pickuppable over OOS markdown noise.
-            1
-            if (
-                d.get("out_of_stock") is True
-                or d.get("in_stock") is False
-                or str(d.get("stock_status") or "").lower().startswith("out")
-                or str(d.get("availability") or "").lower().startswith("out")
-            )
-            else 0,
+            # Prefer confirmed pickup, then any in-stock, then explicit OOS last.
+            0
+            if d.get("pickup_available") is True
+            else 1
+            if d.get("out_of_stock") is not True and d.get("in_stock") is not False
+            else 2,
             -float(d.get("rank_score") or 0),
             -float(d.get("discount_pct") or 0),
             -float(d.get("savings") or 0),
             str(d.get("title") or ""),
         )
     )
-    return deals[: max(1, int(thr.max_deals))]
+    # Soft cap only — return whatever the store actually produced up to max_deals.
+    cap = max(1, int(thr.max_deals))
+    return deals[:cap]
 
 
 def enrich_sample_deal(deal: Dict[str, Any], thresholds: DealThresholds) -> Dict[str, Any]:

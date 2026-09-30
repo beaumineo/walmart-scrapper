@@ -32,34 +32,42 @@ def _num(v: Any) -> Optional[float]:
 
 
 def _stock_fields(raw: Dict[str, Any], general: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize Walmart search/product stock + fulfillment signals."""
+    """Normalize Walmart search/product stock + fulfillment signals.
+
+    Important: many category search rows return pickup/delivery/shipping all
+    false even when the item is NOT out of stock. Only trust an explicit
+    out_of_stock=true flag for OOS — do not infer OOS from empty fulfillment.
+    """
     fulfillment = raw.get("fulfillment") if isinstance(raw.get("fulfillment"), dict) else {}
-    oos = bool(
-        general.get("out_of_stock")
-        or raw.get("out_of_stock")
-        or fulfillment.get("out_of_stock")
-    )
+
+    explicit = general.get("out_of_stock")
+    if explicit is None:
+        explicit = raw.get("out_of_stock")
+    if explicit is None:
+        explicit = fulfillment.get("out_of_stock")
+    oos = bool(explicit) if explicit is not None else False
+
     pickup = fulfillment.get("pickup")
     delivery = fulfillment.get("delivery")
     shipping = fulfillment.get("shipping")
-    if pickup is None and not oos:
-        # Search rows often omit explicit OOS; pickup=true is the store signal.
-        pickup = True if fulfillment.get("pickup") is True else pickup
-    in_stock = not oos
-    if pickup is False and delivery is False and shipping is False:
-        in_stock = False
-        oos = True
 
     if oos:
+        in_stock = False
         availability = "Out of stock"
+        stock_status = "Out of stock"
     elif pickup is True:
+        in_stock = True
         availability = "In stock · pickup"
-    elif pickup is False and (delivery or shipping):
-        availability = "Ship/delivery only"
-    elif pickup is False:
-        availability = "Check store stock"
+        stock_status = "In stock"
+    elif delivery is True or shipping is True:
+        in_stock = True
+        availability = "Ship/delivery available"
+        stock_status = "In stock"
     else:
+        # Fulfillment flags missing/false but Walmart did not mark OOS.
+        in_stock = True
         availability = "In stock"
+        stock_status = "In stock"
 
     return {
         "availability": availability,
@@ -68,7 +76,7 @@ def _stock_fields(raw: Dict[str, Any], general: Dict[str, Any]) -> Dict[str, Any
         "pickup_available": bool(pickup) if pickup is not None else None,
         "delivery_available": bool(delivery) if delivery is not None else None,
         "shipping_available": bool(shipping) if shipping is not None else None,
-        "stock_status": "Out of stock" if oos else "In stock",
+        "stock_status": stock_status,
     }
 
 
