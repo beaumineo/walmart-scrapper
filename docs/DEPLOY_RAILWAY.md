@@ -26,10 +26,10 @@ For Oxylabs **Scraper API** (`realtime.oxylabs.io`), set `OXYLABS_MODE=scraper` 
 Optional (defaults are fine if omitted):
 
 ```
-# Leave WALMART_QUERIES unset to use the deep category sweep
-WALMART_MAX_QUERIES=26
-WALMART_PAGES_PER_QUERY=3
-WALMART_MAX_API_CALLS=36
+# Leave WALMART_QUERIES unset for unblocker (uses a short built-in list)
+WALMART_MAX_QUERIES=4
+WALMART_MAX_API_CALLS=4
+WALMART_PARALLEL_WORKERS=4
 DEAL_MAX_DEALS=2000
 DEAL_PREFER_PICKUP=1
 DEAL_DROP_UNVERIFIED_DEEP=1

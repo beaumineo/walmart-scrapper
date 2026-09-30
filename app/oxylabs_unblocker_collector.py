@@ -7,7 +7,7 @@ Trial / Web Unblocker accounts authenticate at:
 
 Env:
   OXYLABS_USERNAME / OXYLABS_PASSWORD
-  OXYLABS_MODE=unblocker   (default when set via this path)
+  OXYLABS_MODE=unblocker
 """
 from __future__ import annotations
 
@@ -30,19 +30,12 @@ from walmart_parse import (
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Keep this list short — each Unblocker render is ~20–45s.
 DEFAULT_QUERIES = (
     "clearance",
     "rollback",
     "special buy",
     "markdown",
-    "clearance electronics",
-    "clearance home",
-    "clearance apparel",
-    "clearance toys",
-    "clearance grocery",
-    "clearance kitchen",
-    "clearance appliances",
-    "clearance cleaning",
 )
 
 
@@ -61,14 +54,12 @@ def oxylabs_unblocker_enabled(cfg: Optional[CollectorConfig] = None) -> bool:
     if not (cfg.oxylabs_username and cfg.oxylabs_password):
         return False
     mode = (os.environ.get("OXYLABS_MODE") or "auto").strip().lower()
-    # auto: use unblocker (trial accounts are usually unblocker-only)
     return mode in ("auto", "unblocker", "web_unblocker", "both")
 
 
 def _proxies(cfg: CollectorConfig) -> Dict[str, str]:
     user = quote(str(cfg.oxylabs_username), safe="")
     password = quote(str(cfg.oxylabs_password), safe="")
-    # http:// scheme to the HTTPS proxy endpoint is the Oxylabs-recommended form.
     endpoint = f"http://{user}:{password}@unblock.oxylabs.io:60000"
     return {"http": endpoint, "https": endpoint}
 
@@ -86,7 +77,7 @@ def _fetch_html(
         "x-oxylabs-render": "html",
         "x-oxylabs-geo-location": geo if len(geo) == 5 else "United States",
     }
-    timeout = max(60, min(120, int(cfg.timeout_sec) + 50))
+    timeout = max(45, min(90, int(cfg.timeout_sec) + 40))
     resp = requests.get(
         url,
         proxies=_proxies(cfg),
@@ -107,7 +98,10 @@ def _fetch_html(
 
 
 def _build_query_queue(queries: Optional[Sequence[str]], cfg: CollectorConfig) -> List[str]:
-    primary = list(queries or cfg.queries or DEFAULT_QUERIES)
+    """Prefer a short unblocker-specific queue (HTML render is expensive)."""
+    # Ignore the large scraper-api query list from env/config for unblocker speed.
+    use_cfg = bool(queries)
+    primary = list(queries) if use_cfg else list(DEFAULT_QUERIES)
     queued: List[str] = []
     seen = set()
     for q in list(primary) + list(DEFAULT_QUERIES):
@@ -116,7 +110,8 @@ def _build_query_queue(queries: Optional[Sequence[str]], cfg: CollectorConfig) -
             continue
         seen.add(key)
         queued.append(str(q).strip())
-    return queued[: max(4, _env_int("WALMART_MAX_QUERIES", 12))]
+    # Hard default 6 — Unblocker HTML is slow; more queries = multi-minute waits.
+    return queued[: max(3, _env_int("WALMART_MAX_QUERIES", 4))]
 
 
 def collect_store_via_oxylabs_unblocker(
@@ -138,8 +133,9 @@ def collect_store_via_oxylabs_unblocker(
         }
 
     queued = _build_query_queue(queries, cfg)
-    max_api_calls = max(4, _env_int("WALMART_MAX_API_CALLS", 12))
-    workers = max(1, min(6, _env_int("WALMART_PARALLEL_WORKERS", 4)))
+    max_api_calls = max(3, _env_int("WALMART_MAX_API_CALLS", 4))
+    # Trial Unblocker rate-limits hard if too many parallel renders.
+    workers = max(2, min(4, _env_int("WALMART_PARALLEL_WORKERS", 4)))
 
     all_products: List[Dict[str, Any]] = []
     seen = set()
@@ -160,62 +156,46 @@ def collect_store_via_oxylabs_unblocker(
 
     def _one(q: str) -> Dict[str, Any]:
         try:
-            urls = _candidate_urls(sid, q)
-            last_err = ""
-            for url, source in urls[:2]:
-                try:
-                    html = _fetch_html(url, cfg=cfg, postal_code=postal_code)
-                    products = parse_products_from_html(
-                        html, query=q, limit=cfg.max_per_query
-                    )
-                    kept: List[Dict[str, Any]] = []
-                    for p in products:
-                        p["store_id"] = sid
-                        p["collection_source"] = f"oxylabs_unblocker:{source}"
-                        p["query"] = q
-                        if p.get("in_store") is None:
-                            p["in_store"] = True
-                        # Normalize stock fields for deal engine.
-                        if p.get("pickup_available") is None and p.get("in_store"):
-                            p["pickup_available"] = True
-                        if p.get("availability") is None:
-                            p["availability"] = "In stock · pickup"
-                        if p.get("in_stock") is None:
-                            p["in_stock"] = True
-                        if not is_likely_instore_product(p):
-                            continue
-                        kept.append(p)
-                    if kept and looks_like_national_duplicate(kept):
-                        return {
-                            "ok": False,
-                            "query": q,
-                            "error": f"national_duplicate source={source}",
-                            "products": [],
-                        }
-                    if kept:
-                        return {
-                            "ok": True,
-                            "query": q,
-                            "source": source,
-                            "products": kept,
-                            "raw": len(products),
-                            "error": None,
-                        }
-                    last_err = f"empty source={source} raw={len(products)}"
-                except Exception as e:
-                    last_err = f"{type(e).__name__}: {e}"
-                    if "auth failed" in str(e).lower():
-                        return {
-                            "ok": False,
-                            "query": q,
-                            "error": str(e),
-                            "auth_failed": True,
-                            "products": [],
-                        }
+            # One URL only — fallback doubles latency on Unblocker.
+            url, source = _candidate_urls(sid, q)[0]
+            html = _fetch_html(url, cfg=cfg, postal_code=postal_code)
+            products = parse_products_from_html(html, query=q, limit=cfg.max_per_query)
+            kept: List[Dict[str, Any]] = []
+            for p in products:
+                p["store_id"] = sid
+                p["collection_source"] = f"oxylabs_unblocker:{source}"
+                p["query"] = q
+                if p.get("in_store") is None:
+                    p["in_store"] = True
+                if p.get("pickup_available") is None and p.get("in_store"):
+                    p["pickup_available"] = True
+                if p.get("availability") is None:
+                    p["availability"] = "In stock · pickup"
+                if p.get("in_stock") is None:
+                    p["in_stock"] = True
+                if not is_likely_instore_product(p):
+                    continue
+                kept.append(p)
+            if kept and looks_like_national_duplicate(kept):
+                return {
+                    "ok": False,
+                    "query": q,
+                    "error": f"national_duplicate source={source}",
+                    "products": [],
+                }
+            if kept:
+                return {
+                    "ok": True,
+                    "query": q,
+                    "source": source,
+                    "products": kept,
+                    "raw": len(products),
+                    "error": None,
+                }
             return {
                 "ok": False,
                 "query": q,
-                "error": last_err or "empty",
+                "error": f"empty source={source} raw={len(products)}",
                 "products": [],
             }
         except Exception as e:
