@@ -16,8 +16,12 @@ In Railway → Variables, add **only**:
 ```
 OXYLABS_USERNAME=your_user
 OXYLABS_PASSWORD=your_pass
+OXYLABS_MODE=unblocker
 WALMART_COLLECT_ENGINE=auto
 ```
+
+For Oxylabs **Web Unblocker** trial (proxy `unblock.oxylabs.io:60000`), keep `OXYLABS_MODE=unblocker`.
+For Oxylabs **Scraper API** (`realtime.oxylabs.io`), set `OXYLABS_MODE=scraper` or `auto`.
 
 Optional (defaults are fine if omitted):
 

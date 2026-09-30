@@ -19,7 +19,13 @@ from walmart_parse import is_likely_instore_product
 
 def oxylabs_enabled(cfg: Optional[CollectorConfig] = None) -> bool:
     cfg = cfg or get_collector_config()
-    return bool(cfg.oxylabs_username and cfg.oxylabs_password)
+    if not (cfg.oxylabs_username and cfg.oxylabs_password):
+        return False
+    mode = (os.environ.get("OXYLABS_MODE") or "auto").strip().lower()
+    # Trial Web Unblocker accounts do not authenticate on realtime Scraper API.
+    if mode in ("unblocker", "web_unblocker"):
+        return False
+    return True
 
 
 def _num(v: Any) -> Optional[float]:

@@ -35,21 +35,29 @@ def _is_brightdata_isp_only(cfg: CollectorConfig) -> bool:
 def client_backends_status(cfg: Optional[CollectorConfig] = None) -> Dict[str, Any]:
     cfg = cfg or get_collector_config()
     from oxylabs_collector import oxylabs_enabled
+    from oxylabs_unblocker_collector import oxylabs_unblocker_enabled
     from scraperapi_collector import scraperapi_enabled
     from unlocker_collector import unlocker_enabled
 
     status = {
         "oxylabs": oxylabs_enabled(cfg),
+        "oxylabs_unblocker": oxylabs_unblocker_enabled(cfg),
         "scraperapi": scraperapi_enabled(cfg),
         "unlocker": unlocker_enabled(cfg),
         "curl_proxy": bool(cfg.proxy_enabled),
         "brightdata_isp_blocked": _is_brightdata_isp_only(cfg)
         and not (
-            oxylabs_enabled(cfg) or scraperapi_enabled(cfg) or unlocker_enabled(cfg)
+            oxylabs_enabled(cfg)
+            or oxylabs_unblocker_enabled(cfg)
+            or scraperapi_enabled(cfg)
+            or unlocker_enabled(cfg)
         ),
     }
     status["reliable"] = bool(
-        status["oxylabs"] or status["scraperapi"] or status["unlocker"]
+        status["oxylabs"]
+        or status["oxylabs_unblocker"]
+        or status["scraperapi"]
+        or status["unlocker"]
     )
     return status
 
@@ -98,7 +106,20 @@ def collect_store_for_client(
             "engine": "client",
         }
 
-    # 1) Oxylabs — only backend with first-class store_id + delivery_zip
+    # 1) Oxylabs Web Unblocker (trial / proxy accounts)
+    if status.get("oxylabs_unblocker"):
+        from oxylabs_unblocker_collector import collect_store_via_oxylabs_unblocker
+
+        result = collect_store_via_oxylabs_unblocker(
+            store_id, queries=queries, cfg=cfg, postal_code=postal_code
+        )
+        if result.get("ok") and result.get("products"):
+            return result
+        notes.append(result.get("notes") or "oxylabs_unblocker empty")
+    else:
+        notes.append("oxylabs_unblocker skipped (not configured)")
+
+    # 2) Oxylabs Scraper API (walmart_search JSON — paid scraper product)
     if status["oxylabs"]:
         from oxylabs_collector import collect_store_via_oxylabs
 
@@ -111,7 +132,7 @@ def collect_store_for_client(
     else:
         notes.append("oxylabs skipped (not configured)")
 
-    # 2) ScraperAPI HTML only (structured search has no store pin → national)
+    # 3) ScraperAPI HTML only (structured search has no store pin → national)
     if status["scraperapi"]:
         from scraperapi_collector import collect_store_via_scraperapi
 
