@@ -9,8 +9,9 @@ Env: OXYLABS_USERNAME / OXYLABS_PASSWORD
 """
 from __future__ import annotations
 
+import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from config import CollectorConfig, get_collector_config
 from walmart_parse import is_likely_instore_product
@@ -101,9 +102,38 @@ def _infer_offer_type(*, query: str, section_title: str, badge: str) -> Optional
     return None
 
 
-# Fallback queries when primary ones return empty (common: clearance raw=0 but rollbacks exist).
-DEFAULT_QUERIES = ("clearance", "rollback")
-FALLBACK_QUERIES = ("special buy", "markdown", "reduced price")
+# Broad store sweep: generic deal queries + category clearance searches.
+# Early versions stopped after 3–4 queries once a few markdowns appeared —
+# that is why DealHawk-style feeds looked fuller at the same store.
+DEFAULT_QUERIES = (
+    "clearance",
+    "rollback",
+    "special buy",
+    "markdown",
+    "reduced price",
+    "clearance electronics",
+    "clearance toys",
+    "clearance home",
+    "clearance apparel",
+    "clearance grocery",
+    "clearance beauty",
+    "clearance baby",
+    "clearance sports",
+    "clearance kitchen",
+)
+
+# Extra pages for the highest-yield queries only (Oxylabs start_page).
+DEEP_PAGE_QUERIES = ("clearance", "rollback")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
 
 
 def _extract_results(payload: Dict[str, Any]) -> tuple:
@@ -123,6 +153,7 @@ def fetch_walmart_search(
     store_id: str,
     postal_code: Optional[str] = None,
     cfg: Optional[CollectorConfig] = None,
+    start_page: int = 1,
 ) -> Dict[str, Any]:
     cfg = cfg or get_collector_config()
     if not oxylabs_enabled(cfg):
@@ -131,6 +162,7 @@ def fetch_walmart_search(
     import requests
 
     postal = "".join(c for c in str(postal_code or "") if c.isdigit()).zfill(5)[:5]
+    page = max(1, int(start_page or 1))
     payload: Dict[str, Any] = {
         "source": "walmart_search",
         "query": query,
@@ -138,11 +170,12 @@ def fetch_walmart_search(
         "domain": "com",
         "store_id": str(store_id),
         "fulfillment_type": "pickup",
+        "start_page": page,
     }
     if len(postal) == 5:
         payload["delivery_zip"] = postal
 
-    timeout = max(45, min(75, int(cfg.timeout_sec) + 25))
+    timeout = max(45, min(90, int(cfg.timeout_sec) + 35))
     resp = requests.post(
         "https://realtime.oxylabs.io/v1/queries",
         auth=(cfg.oxylabs_username, cfg.oxylabs_password),
@@ -183,7 +216,23 @@ def fetch_walmart_search(
         "status_code": job_status or resp.status_code,
         "raw_count": len(rows),
         "location": location,
+        "start_page": page,
     }
+
+
+def _build_query_queue(queries: Optional[Sequence[str]], cfg: CollectorConfig) -> List[str]:
+    """Merge caller/env queries with the deep default sweep (deduped, order kept)."""
+    primary = list(queries or cfg.queries or DEFAULT_QUERIES)
+    queued: List[str] = []
+    seen = set()
+    for q in list(primary) + list(DEFAULT_QUERIES):
+        key = str(q or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        queued.append(str(q).strip())
+    max_q = max(4, _env_int("WALMART_MAX_QUERIES", 14))
+    return queued[:max_q]
 
 
 def collect_store_via_oxylabs(
@@ -204,12 +253,9 @@ def collect_store_via_oxylabs(
             "engine": "oxylabs",
         }
 
-    primary = list(queries or cfg.queries or DEFAULT_QUERIES)
-    for q in DEFAULT_QUERIES:
-        if q not in primary:
-            primary.append(q)
-    # Also queue fallbacks so we can collect more items with list/was prices.
-    queued = primary + [q for q in FALLBACK_QUERIES if q not in primary]
+    queued = _build_query_queue(queries, cfg)
+    pages_deep = max(1, min(3, _env_int("WALMART_PAGES_PER_QUERY", 2)))
+    max_api_calls = max(6, _env_int("WALMART_MAX_API_CALLS", 18))
 
     all_products: List[Dict[str, Any]] = []
     seen = set()
@@ -225,46 +271,72 @@ def collect_store_via_oxylabs(
                 n += 1
         return n
 
-    for q in queued:
-        # Stop once we have enough priced markdowns for a solid report.
-        if attempts >= 3 and _with_was_count() >= 5:
-            break
-        if attempts >= 4:
-            break
-        attempts += 1
-        try:
-            time.sleep(0.15)
-            result = fetch_walmart_search(
-                q, store_id=str(store_id), postal_code=postal_code, cfg=cfg
-            )
-            batch = result.get("products") or []
-            loc = result.get("location") or {}
-            loc_bit = ""
-            if isinstance(loc, dict) and loc:
-                loc_bit = (
-                    f" loc_store={loc.get('store_id')} "
-                    f"loc_zip={loc.get('zip_code') or loc.get('zipcode')}"
-                )
-            if batch:
-                notes.append(
-                    f"oxylabs ok store={store_id} zip={postal_code or ''} "
-                    f"query={q} n={len(batch)} raw={result.get('raw_count')}{loc_bit}"
-                )
-                for p in batch:
-                    pid = p.get("product_id")
-                    if not pid or pid in seen:
-                        continue
-                    seen.add(pid)
-                    all_products.append(p)
-            else:
-                notes.append(
-                    f"oxylabs empty store={store_id} query={q} "
-                    f"raw={result.get('raw_count')}"
-                )
-        except Exception as e:
-            notes.append(f"oxylabs error query={q}: {type(e).__name__}: {e}")
+    def _ingest(batch: List[Dict[str, Any]]) -> int:
+        added = 0
+        for p in batch:
+            pid = p.get("product_id")
+            if not pid or pid in seen:
+                continue
+            seen.add(pid)
+            all_products.append(p)
+            added += 1
+        return added
 
-    notes.append(f"priced_markdown_candidates={_with_was_count()}")
+    for q in queued:
+        if attempts >= max_api_calls:
+            notes.append(f"api_budget_stop max_api_calls={max_api_calls}")
+            break
+
+        pages_for_q = pages_deep if q.lower() in DEEP_PAGE_QUERIES else 1
+        empty_streak = 0
+        for page in range(1, pages_for_q + 1):
+            if attempts >= max_api_calls:
+                break
+            attempts += 1
+            try:
+                time.sleep(0.12)
+                result = fetch_walmart_search(
+                    q,
+                    store_id=str(store_id),
+                    postal_code=postal_code,
+                    cfg=cfg,
+                    start_page=page,
+                )
+                batch = result.get("products") or []
+                loc = result.get("location") or {}
+                loc_bit = ""
+                if isinstance(loc, dict) and loc:
+                    loc_bit = (
+                        f" loc_store={loc.get('store_id')} "
+                        f"loc_zip={loc.get('zip_code') or loc.get('zipcode')}"
+                    )
+                added = _ingest(batch)
+                if batch:
+                    empty_streak = 0
+                    notes.append(
+                        f"oxylabs ok store={store_id} zip={postal_code or ''} "
+                        f"query={q} page={page} n={len(batch)} added={added} "
+                        f"raw={result.get('raw_count')}{loc_bit}"
+                    )
+                else:
+                    empty_streak += 1
+                    notes.append(
+                        f"oxylabs empty store={store_id} query={q} page={page} "
+                        f"raw={result.get('raw_count')}"
+                    )
+                    # No point paging further if this page was empty.
+                    if empty_streak >= 1 and page > 1:
+                        break
+            except Exception as e:
+                notes.append(
+                    f"oxylabs error query={q} page={page}: {type(e).__name__}: {e}"
+                )
+                break
+
+    notes.append(
+        f"priced_markdown_candidates={_with_was_count()} "
+        f"unique_products={len(all_products)} api_calls={attempts}"
+    )
 
     return {
         "ok": bool(all_products),

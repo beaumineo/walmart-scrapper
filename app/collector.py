@@ -21,7 +21,21 @@ from config import PULLS_DIR, get_collector_config
 from walmart_parse import looks_like_national_duplicate, overlaps_other_store_cache
 
 
-DEFAULT_QUERIES = ["clearance", "rollback", "special buy"]
+DEFAULT_QUERIES = [
+    "clearance",
+    "rollback",
+    "special buy",
+    "markdown",
+    "clearance electronics",
+    "clearance toys",
+    "clearance home",
+    "clearance apparel",
+    "clearance grocery",
+    "clearance beauty",
+    "clearance baby",
+    "clearance sports",
+    "clearance kitchen",
+]
 
 _LIVE_COOLDOWN_UNTIL = 0.0
 _LIVE_COOLDOWN_SECONDS = 45 * 60  # longer cool-down after a challenge
@@ -357,11 +371,11 @@ def collect_store_prices(
                 capture_output=True,
                 text=True,
                 timeout=max(
-                    150,
+                    240,
                     int(cfg.timeout_sec)
                     * max(1, len(queries))
                     * (cfg.max_retries + 1)
-                    + 60,
+                    + 90,
                 ),
                 env={**os.environ, "WALMART_COLLECT_INLINE": "1"},
             )

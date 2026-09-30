@@ -956,7 +956,7 @@
       dealsEl.innerHTML = `
         <div class="loading">
           <div class="spinner" aria-hidden="true"></div>
-          <div>Checking live in-store prices. Keep this tab open (often 20-90 seconds).</div>
+          <div>Checking live in-store prices. Keep this tab open (often 45-180 seconds — deeper store sweep).</div>
         </div>`;
     }
 
@@ -1102,7 +1102,7 @@
       } catch (e) {
         let msg = e.message || "Search failed";
         if (e.name === "AbortError") {
-          msg = "Search timed out. Live store pulls can take up to 90 seconds. Try again.";
+          msg = "Search timed out. Live store pulls can take up to 3 minutes with the deeper sweep. Try again.";
         } else if (/failed to fetch|networkerror|load failed/i.test(String(msg))) {
           msg = "Connection dropped while loading live prices. Wait a few seconds and click Find deals again.";
         }
@@ -1116,7 +1116,7 @@
           storeId: storeEl.value || "",
           statusLabel: "Retry",
         });
-        metaEl.textContent = "Live pulls sometimes take 30-90s. A second try usually works.";
+        metaEl.textContent = "Live pulls sometimes take 1–3 minutes with the deeper sweep. A second try usually works.";
       } finally {
         clearTimeout(timer);
         $("btnReport").disabled = false;

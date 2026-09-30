@@ -194,8 +194,16 @@ class CollectorConfig:
     proxies: List[ProxyConfig] = field(default_factory=list)
     max_retries: int = 1
     timeout_sec: float = 20.0
-    max_per_query: int = 40
-    queries: tuple = ("clearance", "rollback", "special buy")
+    max_per_query: int = 80
+    queries: tuple = (
+        "clearance",
+        "rollback",
+        "special buy",
+        "markdown",
+        "clearance electronics",
+        "clearance toys",
+        "clearance home",
+    )
     # auto | oxylabs | scraperapi | unlocker | curl | playwright | uc
     collect_engine: str = "auto"
     rotate_session: bool = False
@@ -270,7 +278,21 @@ def get_collector_config() -> CollectorConfig:
     queries = (
         tuple(q.strip() for q in queries_raw.split(",") if q.strip())
         if queries_raw
-        else ("clearance", "rollback")
+        else (
+            "clearance",
+            "rollback",
+            "special buy",
+            "markdown",
+            "clearance electronics",
+            "clearance toys",
+            "clearance home",
+            "clearance apparel",
+            "clearance grocery",
+            "clearance beauty",
+            "clearance baby",
+            "clearance sports",
+            "clearance kitchen",
+        )
     )
     rotate_raw = os.environ.get("WALMART_PROXY_ROTATE_SESSION", "1").strip().lower()
     rotate = rotate_raw in ("1", "true", "yes", "on")
@@ -289,7 +311,7 @@ def get_collector_config() -> CollectorConfig:
         proxies=proxies,
         max_retries=int(os.environ.get("WALMART_MAX_RETRIES", "3")),
         timeout_sec=float(os.environ.get("WALMART_TIMEOUT_SEC", "35")),
-        max_per_query=int(os.environ.get("WALMART_MAX_PER_QUERY", "40")),
+        max_per_query=int(os.environ.get("WALMART_MAX_PER_QUERY", "80")),
         queries=queries,
         collect_engine=os.environ.get("WALMART_COLLECT_ENGINE", "auto").lower(),
         rotate_session=rotate,

@@ -1,6 +1,6 @@
 # Host for client demo — Railway (API + UI together)
 
-This app needs long-running live Walmart pulls (often 30-90s).
+This app needs long-running live Walmart pulls (often 45–180s with the deeper sweep).
 Use Railway for the whole app (frontend + backend). Vercel alone will time out.
 
 ## 1) Create Railway project
@@ -22,13 +22,19 @@ WALMART_COLLECT_ENGINE=auto
 Optional (defaults are fine if omitted):
 
 ```
-WALMART_QUERIES=clearance,rollback
+# Leave WALMART_QUERIES unset to use the deep category sweep
+WALMART_MAX_QUERIES=14
+WALMART_PAGES_PER_QUERY=2
+WALMART_MAX_API_CALLS=18
+DEAL_MAX_DEALS=150
 DEAL_DEALS_ONLY=1
 DEAL_INCLUDE_SHELF=0
 DEAL_MIN_DISCOUNT_PCT=20
 WALMART_UC_ENABLED=0
 WALMART_ALLOW_BROWSER=0
 ```
+
+If Railway still has `WALMART_QUERIES=clearance,rollback`, **delete that variable** (or expand it) so the new deeper sweep can run.
 
 Ignore Railway "Suggested Variables" for empty keys like `PROXIES`, `WALMART_TMP_DIR`, etc. You do not need to fill those.
 

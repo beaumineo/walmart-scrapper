@@ -30,7 +30,7 @@ class DealThresholds:
     include_shelf: bool = False  # deals only — no plain shelf rows
     prefer_offer_flags: bool = True
     drop_online_only: bool = True
-    max_deals: int = 60
+    max_deals: int = 150
     deals_only: bool = True  # drop minor_drop / shelf from output
 
     @classmethod
@@ -58,7 +58,7 @@ class DealThresholds:
             include_shelf=_b("DEAL_INCLUDE_SHELF", False),
             prefer_offer_flags=_b("DEAL_PREFER_OFFER_FLAGS", True),
             drop_online_only=_b("DEAL_DROP_ONLINE_ONLY", True),
-            max_deals=int(_f("DEAL_MAX_DEALS", 60)),
+            max_deals=int(_f("DEAL_MAX_DEALS", 150)),
             deals_only=_b("DEAL_DEALS_ONLY", True),
         )
         if overrides:
