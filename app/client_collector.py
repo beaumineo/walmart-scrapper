@@ -110,12 +110,23 @@ def collect_store_for_client(
     if status.get("oxylabs_unblocker"):
         from oxylabs_unblocker_collector import collect_store_via_oxylabs_unblocker
 
+        # Never pass the huge scraper-api query list — Unblocker is bandwidth-sensitive.
         result = collect_store_via_oxylabs_unblocker(
-            store_id, queries=queries, cfg=cfg, postal_code=postal_code
+            store_id, queries=None, cfg=cfg, postal_code=postal_code
         )
         if result.get("ok") and result.get("products"):
             return result
         notes.append(result.get("notes") or "oxylabs_unblocker empty")
+        # Do not fall through to ISP/curl after Unblocker — that burns proxy GB.
+        return {
+            "ok": False,
+            "mode": result.get("mode") or "error",
+            "products": [],
+            "notes": "; ".join(n for n in notes if n),
+            "proxy_used": True,
+            "attempts": int(result.get("attempts") or 1),
+            "engine": "oxylabs_unblocker",
+        }
     else:
         notes.append("oxylabs_unblocker skipped (not configured)")
 
@@ -157,7 +168,14 @@ def collect_store_for_client(
         notes.append("unlocker skipped (not configured)")
 
     # Optional last resort: curl only if not known-blocked ISP-only
-    if status["curl_proxy"] and not status["brightdata_isp_blocked"]:
+    # and no commercial Oxylabs/ScraperAPI credentials are present.
+    has_commercial = bool(
+        status.get("oxylabs")
+        or status.get("oxylabs_unblocker")
+        or status.get("scraperapi")
+        or status.get("unlocker")
+    )
+    if status["curl_proxy"] and not status["brightdata_isp_blocked"] and not has_commercial:
         from http_collector import collect_store_via_curl
 
         result = collect_store_via_curl(
@@ -168,6 +186,8 @@ def collect_store_for_client(
         notes.append(result.get("notes") or f"curl mode={result.get('mode')}")
     elif status["brightdata_isp_blocked"]:
         notes.append("curl skipped (Bright Data ISP is Akamai-blocked on Walmart)")
+    elif has_commercial:
+        notes.append("curl skipped (commercial backend configured; avoid ISP bandwidth burn)")
 
     return {
         "ok": False,

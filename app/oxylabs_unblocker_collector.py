@@ -1,13 +1,12 @@
 """
 Oxylabs Web Unblocker — store-scoped Walmart search via proxy.
 
-Trial / Web Unblocker accounts authenticate at:
-  https://user:pass@unblock.oxylabs.io:60000
-(not realtime.oxylabs.io Scraper API).
+Uses unblock.oxylabs.io:60000 (NOT realtime Scraper API).
 
-Env:
-  OXYLABS_USERNAME / OXYLABS_PASSWORD
-  OXYLABS_MODE=unblocker
+Bandwidth rules:
+  - Default NO browser render (x-oxylabs-render off) — render can burn 10x+ data
+  - Few queries only (clearance / rollback / markdown)
+  - One URL per query, store cookie + geo header for localization
 """
 from __future__ import annotations
 
@@ -20,7 +19,7 @@ from urllib.parse import quote
 import urllib3
 
 from config import CollectorConfig, get_collector_config
-from http_collector import _candidate_urls
+from http_collector import _candidate_urls, build_store_cookie_header
 from walmart_parse import (
     is_challenge_html,
     is_likely_instore_product,
@@ -30,11 +29,10 @@ from walmart_parse import (
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Keep this list short — each Unblocker render is ~20–45s.
+# Short list on purpose — each Unblocker hit costs time + bandwidth.
 DEFAULT_QUERIES = (
     "clearance",
     "rollback",
-    "special buy",
     "markdown",
 )
 
@@ -47,6 +45,13 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 def oxylabs_unblocker_enabled(cfg: Optional[CollectorConfig] = None) -> bool:
@@ -68,16 +73,24 @@ def _fetch_html(
     url: str,
     *,
     cfg: CollectorConfig,
+    store_id: str,
     postal_code: Optional[str],
-) -> str:
+) -> tuple:
+    """Return (html, bytes_downloaded)."""
     import requests
 
     geo = "".join(c for c in str(postal_code or "") if c.isdigit())[:5]
     headers = {
-        "x-oxylabs-render": "html",
         "x-oxylabs-geo-location": geo if len(geo) == 5 else "United States",
+        # Pin assortment to selected store (critical for store-local lists).
+        "x-oxylabs-force-cookies": "1",
+        "Cookie": build_store_cookie_header(str(store_id), postal_code),
     }
-    timeout = max(45, min(90, int(cfg.timeout_sec) + 40))
+    # Render is optional and VERY expensive — keep off unless explicitly enabled.
+    if _env_bool("OXYLABS_RENDER", False):
+        headers["x-oxylabs-render"] = "html"
+
+    timeout = max(35, min(75, int(cfg.timeout_sec) + 25))
     resp = requests.get(
         url,
         proxies=_proxies(cfg),
@@ -85,6 +98,7 @@ def _fetch_html(
         timeout=timeout,
         verify=False,
     )
+    nbytes = len(resp.content or b"")
     if resp.status_code == 401:
         raise RuntimeError("Oxylabs Unblocker auth failed (check OXYLABS_USERNAME/PASSWORD)")
     if resp.status_code == 429:
@@ -92,16 +106,14 @@ def _fetch_html(
     if resp.status_code >= 400:
         raise RuntimeError(f"Oxylabs Unblocker http={resp.status_code}: {resp.text[:200]}")
     html = resp.text or ""
-    if is_challenge_html(html, url):
+    # Soft challenge check: if we still parsed products later, keep going.
+    if is_challenge_html(html, url) and "__NEXT_DATA__" not in html:
         raise RuntimeError("Oxylabs Unblocker returned Walmart challenge page")
-    return html
+    return html, nbytes
 
 
-def _build_query_queue(queries: Optional[Sequence[str]], cfg: CollectorConfig) -> List[str]:
-    """Prefer a short unblocker-specific queue (HTML render is expensive)."""
-    # Ignore the large scraper-api query list from env/config for unblocker speed.
-    use_cfg = bool(queries)
-    primary = list(queries) if use_cfg else list(DEFAULT_QUERIES)
+def _build_query_queue(queries: Optional[Sequence[str]]) -> List[str]:
+    primary = list(queries) if queries else list(DEFAULT_QUERIES)
     queued: List[str] = []
     seen = set()
     for q in list(primary) + list(DEFAULT_QUERIES):
@@ -110,8 +122,8 @@ def _build_query_queue(queries: Optional[Sequence[str]], cfg: CollectorConfig) -
             continue
         seen.add(key)
         queued.append(str(q).strip())
-    # Hard default 6 — Unblocker HTML is slow; more queries = multi-minute waits.
-    return queued[: max(3, _env_int("WALMART_MAX_QUERIES", 4))]
+    # Hard cap low to protect trial bandwidth.
+    return queued[: max(2, min(5, _env_int("WALMART_MAX_QUERIES", 3)))]
 
 
 def collect_store_via_oxylabs_unblocker(
@@ -132,15 +144,16 @@ def collect_store_via_oxylabs_unblocker(
             "engine": "oxylabs_unblocker",
         }
 
-    queued = _build_query_queue(queries, cfg)
-    max_api_calls = max(3, _env_int("WALMART_MAX_API_CALLS", 4))
-    # Trial Unblocker rate-limits hard if too many parallel renders.
-    workers = max(2, min(4, _env_int("WALMART_PARALLEL_WORKERS", 4)))
+    # Ignore huge scraper-api query lists from env — they explode Unblocker cost.
+    queued = _build_query_queue(None if not queries else queries[:5])
+    max_api_calls = max(2, min(5, _env_int("WALMART_MAX_API_CALLS", 3)))
+    workers = max(1, min(3, _env_int("WALMART_PARALLEL_WORKERS", 3)))
 
     all_products: List[Dict[str, Any]] = []
     seen = set()
     notes: List[str] = []
     attempts = 0
+    total_bytes = 0
     sid = str(store_id)
 
     def _ingest(batch: List[Dict[str, Any]]) -> int:
@@ -156,9 +169,10 @@ def collect_store_via_oxylabs_unblocker(
 
     def _one(q: str) -> Dict[str, Any]:
         try:
-            # One URL only — fallback doubles latency on Unblocker.
             url, source = _candidate_urls(sid, q)[0]
-            html = _fetch_html(url, cfg=cfg, postal_code=postal_code)
+            html, nbytes = _fetch_html(
+                url, cfg=cfg, store_id=sid, postal_code=postal_code
+            )
             products = parse_products_from_html(html, query=q, limit=cfg.max_per_query)
             kept: List[Dict[str, Any]] = []
             for p in products:
@@ -182,6 +196,7 @@ def collect_store_via_oxylabs_unblocker(
                     "query": q,
                     "error": f"national_duplicate source={source}",
                     "products": [],
+                    "bytes": nbytes,
                 }
             if kept:
                 return {
@@ -190,6 +205,7 @@ def collect_store_via_oxylabs_unblocker(
                     "source": source,
                     "products": kept,
                     "raw": len(products),
+                    "bytes": nbytes,
                     "error": None,
                 }
             return {
@@ -197,6 +213,7 @@ def collect_store_via_oxylabs_unblocker(
                 "query": q,
                 "error": f"empty source={source} raw={len(products)}",
                 "products": [],
+                "bytes": nbytes,
             }
         except Exception as e:
             return {
@@ -205,6 +222,7 @@ def collect_store_via_oxylabs_unblocker(
                 "error": f"{type(e).__name__}: {e}",
                 "auth_failed": "auth failed" in str(e).lower(),
                 "products": [],
+                "bytes": 0,
             }
 
     t0 = time.time()
@@ -234,12 +252,13 @@ def collect_store_via_oxylabs_unblocker(
 
     for hit in sorted(hits, key=lambda h: str(h.get("query") or "")):
         q = hit.get("query")
+        total_bytes += int(hit.get("bytes") or 0)
         if hit.get("ok"):
             added = _ingest(hit.get("products") or [])
             notes.append(
                 f"oxylabs_unblocker ok store={sid} zip={postal_code or ''} "
                 f"query={q} source={hit.get('source')} n={len(hit.get('products') or [])} "
-                f"added={added} raw={hit.get('raw')}"
+                f"added={added} raw={hit.get('raw')} bytes={hit.get('bytes')}"
             )
         else:
             notes.append(f"oxylabs_unblocker empty/error query={q}: {hit.get('error')}")
@@ -255,6 +274,8 @@ def collect_store_via_oxylabs_unblocker(
     notes.append(
         f"priced_markdown_candidates={with_was} unique_products={len(all_products)} "
         f"api_calls={attempts} parallel_workers={workers} "
+        f"downloaded_mb={round(total_bytes / (1024 * 1024), 2)} "
+        f"render={int(_env_bool('OXYLABS_RENDER', False))} "
         f"elapsed_sec={round(time.time() - t0, 1)}"
     )
 

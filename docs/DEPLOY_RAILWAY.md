@@ -17,19 +17,20 @@ In Railway → Variables, add **only**:
 OXYLABS_USERNAME=your_user
 OXYLABS_PASSWORD=your_pass
 OXYLABS_MODE=unblocker
+OXYLABS_RENDER=0
 WALMART_COLLECT_ENGINE=auto
 ```
 
-For Oxylabs **Web Unblocker** trial (proxy `unblock.oxylabs.io:60000`), keep `OXYLABS_MODE=unblocker`.
-For Oxylabs **Scraper API** (`realtime.oxylabs.io`), set `OXYLABS_MODE=scraper` or `auto`.
+For Oxylabs **Web Unblocker** trial (proxy `unblock.oxylabs.io:60000`), keep `OXYLABS_MODE=unblocker` and **`OXYLABS_RENDER=0`** (render mode can burn hundreds of MB per pull).
+For Oxylabs **Scraper API** (`realtime.oxylabs.io`), set `OXYLABS_MODE=scraper`.
 
 Optional (defaults are fine if omitted):
 
 ```
 # Leave WALMART_QUERIES unset for unblocker (uses a short built-in list)
-WALMART_MAX_QUERIES=4
-WALMART_MAX_API_CALLS=4
-WALMART_PARALLEL_WORKERS=4
+WALMART_MAX_QUERIES=3
+WALMART_MAX_API_CALLS=3
+WALMART_PARALLEL_WORKERS=3
 DEAL_MAX_DEALS=2000
 DEAL_PREFER_PICKUP=1
 DEAL_DROP_UNVERIFIED_DEEP=1
