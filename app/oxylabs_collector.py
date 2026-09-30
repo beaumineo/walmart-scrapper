@@ -332,9 +332,12 @@ def collect_store_via_oxylabs(
             "engine": "oxylabs",
         }
 
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     queued = _build_query_queue(queries, cfg)
     pages_deep = max(1, min(4, _env_int("WALMART_PAGES_PER_QUERY", 3)))
     max_api_calls = max(10, _env_int("WALMART_MAX_API_CALLS", 40))
+    workers = max(1, min(12, _env_int("WALMART_PARALLEL_WORKERS", 8)))
 
     all_products: List[Dict[str, Any]] = []
     seen = set()
@@ -361,65 +364,124 @@ def collect_store_via_oxylabs(
             added += 1
         return added
 
-    for q in queued:
-        if attempts >= max_api_calls:
-            notes.append(f"api_budget_stop max_api_calls={max_api_calls}")
-            break
-
+    def _pages_for(q: str) -> int:
         q_l = q.lower()
         if q_l in DEEP_PAGE_QUERIES:
-            pages_for_q = pages_deep
-        elif q_l in MID_PAGE_QUERIES:
-            pages_for_q = min(2, pages_deep)
-        else:
-            pages_for_q = 1
-        empty_streak = 0
-        for page in range(1, pages_for_q + 1):
-            if attempts >= max_api_calls:
-                break
-            attempts += 1
-            try:
-                time.sleep(0.1)
-                result = fetch_walmart_search(
-                    q,
-                    store_id=str(store_id),
-                    postal_code=postal_code,
-                    cfg=cfg,
-                    start_page=page,
-                )
-                batch = result.get("products") or []
-                loc = result.get("location") or {}
-                loc_bit = ""
-                if isinstance(loc, dict) and loc:
-                    loc_bit = (
-                        f" loc_store={loc.get('store_id')} "
-                        f"loc_zip={loc.get('zip_code') or loc.get('zipcode')}"
-                    )
-                added = _ingest(batch)
-                if batch:
-                    empty_streak = 0
-                    notes.append(
-                        f"oxylabs ok store={store_id} zip={postal_code or ''} "
-                        f"query={q} page={page} n={len(batch)} added={added} "
-                        f"raw={result.get('raw_count')}{loc_bit}"
-                    )
-                else:
-                    empty_streak += 1
-                    notes.append(
-                        f"oxylabs empty store={store_id} query={q} page={page} "
-                        f"raw={result.get('raw_count')}"
-                    )
-                    if empty_streak >= 1 and page > 1:
-                        break
-            except Exception as e:
-                notes.append(
-                    f"oxylabs error query={q} page={page}: {type(e).__name__}: {e}"
-                )
-                break
+            return pages_deep
+        if q_l in MID_PAGE_QUERIES:
+            return min(2, pages_deep)
+        return 1
 
+    def _run_one(q: str, page: int) -> Dict[str, Any]:
+        try:
+            result = fetch_walmart_search(
+                q,
+                store_id=str(store_id),
+                postal_code=postal_code,
+                cfg=cfg,
+                start_page=page,
+            )
+            return {
+                "ok": True,
+                "query": q,
+                "page": page,
+                "result": result,
+                "error": None,
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "query": q,
+                "page": page,
+                "result": None,
+                "error": f"{type(e).__name__}: {e}",
+            }
+
+    def _run_batch(jobs: List[tuple]) -> List[Dict[str, Any]]:
+        """Run (query, page) jobs in parallel; preserve completion notes."""
+        nonlocal attempts
+        if not jobs:
+            return []
+        # Hard cap remaining budget.
+        remain = max_api_calls - attempts
+        if remain <= 0:
+            return []
+        jobs = jobs[:remain]
+        attempts += len(jobs)
+        out: List[Dict[str, Any]] = []
+        with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as pool:
+            futs = [pool.submit(_run_one, q, page) for q, page in jobs]
+            for fut in as_completed(futs):
+                out.append(fut.result())
+        return out
+
+    def _apply_hits(hits: List[Dict[str, Any]]) -> Dict[str, bool]:
+        """Ingest hits; return map of query -> had_products on page 1."""
+        page1_ok: Dict[str, bool] = {}
+        # Stable-ish order for notes: by query then page.
+        hits_sorted = sorted(
+            hits, key=lambda h: (str(h.get("query") or ""), int(h.get("page") or 1))
+        )
+        for hit in hits_sorted:
+            q = str(hit.get("query") or "")
+            page = int(hit.get("page") or 1)
+            if not hit.get("ok"):
+                notes.append(f"oxylabs error query={q} page={page}: {hit.get('error')}")
+                if page == 1:
+                    page1_ok[q] = False
+                continue
+            result = hit.get("result") or {}
+            batch = result.get("products") or []
+            loc = result.get("location") or {}
+            loc_bit = ""
+            if isinstance(loc, dict) and loc:
+                loc_bit = (
+                    f" loc_store={loc.get('store_id')} "
+                    f"loc_zip={loc.get('zip_code') or loc.get('zipcode')}"
+                )
+            added = _ingest(batch)
+            if batch:
+                if page == 1:
+                    page1_ok[q] = True
+                notes.append(
+                    f"oxylabs ok store={store_id} zip={postal_code or ''} "
+                    f"query={q} page={page} n={len(batch)} added={added} "
+                    f"raw={result.get('raw_count')}{loc_bit}"
+                )
+            else:
+                if page == 1:
+                    page1_ok[q] = False
+                notes.append(
+                    f"oxylabs empty store={store_id} query={q} page={page} "
+                    f"raw={result.get('raw_count')}"
+                )
+        return page1_ok
+
+    t0 = time.time()
+    # Wave 1: every query page 1 in parallel (fast first paint of coverage).
+    wave1 = [(q, 1) for q in queued]
+    page1_ok = _apply_hits(_run_batch(wave1))
+
+    # Wave 2: extra pages only for queries that returned something on page 1.
+    wave2: List[tuple] = []
+    for q in queued:
+        pages_for_q = _pages_for(q)
+        if pages_for_q <= 1:
+            continue
+        if not page1_ok.get(q):
+            continue
+        for page in range(2, pages_for_q + 1):
+            wave2.append((q, page))
+    if attempts < max_api_calls and wave2:
+        _apply_hits(_run_batch(wave2))
+    elif wave2 and attempts >= max_api_calls:
+        notes.append(f"api_budget_stop max_api_calls={max_api_calls}")
+
+    elapsed = round(time.time() - t0, 1)
     notes.append(
         f"priced_markdown_candidates={_with_was_count()} "
-        f"unique_products={len(all_products)} api_calls={attempts}"
+        f"unique_products={len(all_products)} api_calls={attempts} "
+        f"parallel_workers={workers} elapsed_sec={elapsed}"
     )
 
     return {

@@ -27,7 +27,7 @@ app = FastAPI(
         "`GET /api/deals?zip=&store_id=&min_discount_pct=`.\n\n"
         "Live pulls are store-scoped (Oxylabs). Docs: `/docs`, `docs/API.md`, `docs/HANDOFF.md`."
     ),
-    version="1.0.4",
+    version="1.0.5",
     contact={"name": "Hidden Clearances Walmart module"},
 )
 
@@ -98,7 +98,7 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "1.0.4",
+        "version": "1.0.5",
         "milestone": 5,
         "milestones_complete": [0, 1, 2, 3, 4, 5],
         "proxy_count": len(cfg.proxies),
@@ -120,7 +120,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.0.4-coverage-stock-v2",
+            "build": "1.0.5-parallel-oxylabs",
         },
     }
 
@@ -364,7 +364,7 @@ def api_deals(
 
     Always prefers live store-scoped collection (no demo / sample catalog).
     Returns markdown / clearance / hidden-clearance deals only (M3).
-    Live Oxylabs pulls often take 60–240 seconds (deep multi-query USA store sweep) — use a client timeout ≥ 300s.
+    Live Oxylabs pulls often take 30–90 seconds (parallel multi-query USA store sweep) — use a client timeout ≥ 180s.
     """
     for k, v in enforce_rate_limit(request).items():
         response.headers[k] = v
