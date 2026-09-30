@@ -31,6 +31,47 @@ def _num(v: Any) -> Optional[float]:
         return None
 
 
+def _stock_fields(raw: Dict[str, Any], general: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize Walmart search/product stock + fulfillment signals."""
+    fulfillment = raw.get("fulfillment") if isinstance(raw.get("fulfillment"), dict) else {}
+    oos = bool(
+        general.get("out_of_stock")
+        or raw.get("out_of_stock")
+        or fulfillment.get("out_of_stock")
+    )
+    pickup = fulfillment.get("pickup")
+    delivery = fulfillment.get("delivery")
+    shipping = fulfillment.get("shipping")
+    if pickup is None and not oos:
+        # Search rows often omit explicit OOS; pickup=true is the store signal.
+        pickup = True if fulfillment.get("pickup") is True else pickup
+    in_stock = not oos
+    if pickup is False and delivery is False and shipping is False:
+        in_stock = False
+        oos = True
+
+    if oos:
+        availability = "Out of stock"
+    elif pickup is True:
+        availability = "In stock · pickup"
+    elif pickup is False and (delivery or shipping):
+        availability = "Ship/delivery only"
+    elif pickup is False:
+        availability = "Check store stock"
+    else:
+        availability = "In stock"
+
+    return {
+        "availability": availability,
+        "in_stock": in_stock,
+        "out_of_stock": oos,
+        "pickup_available": bool(pickup) if pickup is not None else None,
+        "delivery_available": bool(delivery) if delivery is not None else None,
+        "shipping_available": bool(shipping) if shipping is not None else None,
+        "stock_status": "Out of stock" if oos else "In stock",
+    }
+
+
 def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[str, Any]]:
     general = raw.get("general") if isinstance(raw.get("general"), dict) else {}
     price_obj = raw.get("price") if isinstance(raw.get("price"), dict) else {}
@@ -58,11 +99,11 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
         url = "https://www.walmart.com" + url
     image = general.get("image") or raw.get("image")
 
-    out_of_stock = bool(general.get("out_of_stock") or raw.get("out_of_stock"))
     is_reduced = bool(was and current and was > current)
     section = str(general.get("section_title") or raw.get("section_title") or "").strip()
     badge = str(general.get("badge") or "").strip().lower()
     offer_type = _infer_offer_type(query=query, section_title=section, badge=badge)
+    stock = _stock_fields(raw, general)
 
     item: Dict[str, Any] = {
         "product_id": pid or title[:40],
@@ -76,7 +117,16 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
         "is_reduced": is_reduced,
         "is_price_event": bool(is_reduced or offer_type),
         "seller_name": seller.get("name") or raw.get("seller_name"),
-        "availability": "Out of stock" if out_of_stock else "In stock",
+        "availability": stock["availability"],
+        "availability_code": stock["stock_status"],
+        "in_stock": stock["in_stock"],
+        "out_of_stock": stock["out_of_stock"],
+        "pickup_available": stock["pickup_available"],
+        "delivery_available": stock["delivery_available"],
+        "shipping_available": stock["shipping_available"],
+        "stock_status": stock["stock_status"],
+        # Store-scoped Oxylabs search is already localized to store_id + zip.
+        # Do not drop rows just because pickup flag is false on some categories.
         "in_store": True,
         "online": True,
         "url": url or None,
@@ -102,9 +152,8 @@ def _infer_offer_type(*, query: str, section_title: str, badge: str) -> Optional
     return None
 
 
-# Broad store sweep: generic deal queries + category clearance searches.
-# Early versions stopped after 3–4 queries once a few markdowns appeared —
-# that is why DealHawk-style feeds looked fuller at the same store.
+# Broad store sweep across deal keywords + department clearance.
+# Aimed at DealHawk-scale lists (~300) while staying store-scoped.
 DEFAULT_QUERIES = (
     "clearance",
     "rollback",
@@ -120,10 +169,40 @@ DEFAULT_QUERIES = (
     "clearance baby",
     "clearance sports",
     "clearance kitchen",
+    "clearance appliances",
+    "clearance cleaning",
+    "clearance outdoor",
+    "clearance patio",
+    "clearance furniture",
+    "clearance tools",
+    "clearance pets",
+    "clearance automotive",
+    "clearance office",
+    "clearance health",
+    "rollback electronics",
+    "rollback home",
 )
 
-# Extra pages for the highest-yield queries only (Oxylabs start_page).
-DEEP_PAGE_QUERIES = ("clearance", "rollback")
+# Extra pages for high-yield queries (Oxylabs start_page).
+DEEP_PAGE_QUERIES = {
+    "clearance",
+    "rollback",
+}
+# Second page for solid category queries (budget-friendly).
+MID_PAGE_QUERIES = {
+    "special buy",
+    "markdown",
+    "clearance electronics",
+    "clearance home",
+    "clearance apparel",
+    "clearance toys",
+    "clearance appliances",
+    "clearance grocery",
+    "clearance cleaning",
+    "clearance kitchen",
+    "rollback electronics",
+    "rollback home",
+}
 
 
 def _env_int(name: str, default: int) -> int:
@@ -231,7 +310,7 @@ def _build_query_queue(queries: Optional[Sequence[str]], cfg: CollectorConfig) -
             continue
         seen.add(key)
         queued.append(str(q).strip())
-    max_q = max(4, _env_int("WALMART_MAX_QUERIES", 14))
+    max_q = max(8, _env_int("WALMART_MAX_QUERIES", 26))
     return queued[:max_q]
 
 
@@ -254,8 +333,8 @@ def collect_store_via_oxylabs(
         }
 
     queued = _build_query_queue(queries, cfg)
-    pages_deep = max(1, min(3, _env_int("WALMART_PAGES_PER_QUERY", 2)))
-    max_api_calls = max(6, _env_int("WALMART_MAX_API_CALLS", 18))
+    pages_deep = max(1, min(4, _env_int("WALMART_PAGES_PER_QUERY", 3)))
+    max_api_calls = max(10, _env_int("WALMART_MAX_API_CALLS", 40))
 
     all_products: List[Dict[str, Any]] = []
     seen = set()
@@ -287,14 +366,20 @@ def collect_store_via_oxylabs(
             notes.append(f"api_budget_stop max_api_calls={max_api_calls}")
             break
 
-        pages_for_q = pages_deep if q.lower() in DEEP_PAGE_QUERIES else 1
+        q_l = q.lower()
+        if q_l in DEEP_PAGE_QUERIES:
+            pages_for_q = pages_deep
+        elif q_l in MID_PAGE_QUERIES:
+            pages_for_q = min(2, pages_deep)
+        else:
+            pages_for_q = 1
         empty_streak = 0
         for page in range(1, pages_for_q + 1):
             if attempts >= max_api_calls:
                 break
             attempts += 1
             try:
-                time.sleep(0.12)
+                time.sleep(0.1)
                 result = fetch_walmart_search(
                     q,
                     store_id=str(store_id),
@@ -324,7 +409,6 @@ def collect_store_via_oxylabs(
                         f"oxylabs empty store={store_id} query={q} page={page} "
                         f"raw={result.get('raw_count')}"
                     )
-                    # No point paging further if this page was empty.
                     if empty_streak >= 1 and page > 1:
                         break
             except Exception as e:

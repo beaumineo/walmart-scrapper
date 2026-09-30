@@ -292,6 +292,18 @@ def get_collector_config() -> CollectorConfig:
             "clearance baby",
             "clearance sports",
             "clearance kitchen",
+            "clearance appliances",
+            "clearance cleaning",
+            "clearance outdoor",
+            "clearance patio",
+            "clearance furniture",
+            "clearance tools",
+            "clearance pets",
+            "clearance automotive",
+            "clearance office",
+            "clearance health",
+            "rollback electronics",
+            "rollback home",
         )
     )
     rotate_raw = os.environ.get("WALMART_PROXY_ROTATE_SESSION", "1").strip().lower()

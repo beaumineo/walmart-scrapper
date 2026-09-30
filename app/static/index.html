@@ -471,6 +471,16 @@
       background: #0d1218;
     }
 
+    .chip.stock {
+      color: #7dcea0;
+      border-color: rgba(125, 206, 160, 0.35);
+    }
+
+    .chip.stock.out {
+      color: #e8a0a0;
+      border-color: rgba(232, 160, 160, 0.35);
+    }
+
     .deal-link {
       display: inline-block;
       margin-top: 8px;
@@ -956,7 +966,7 @@
       dealsEl.innerHTML = `
         <div class="loading">
           <div class="spinner" aria-hidden="true"></div>
-          <div>Checking live in-store prices. Keep this tab open (often 45-180 seconds — deeper store sweep).</div>
+          <div>Checking live in-store prices. Keep this tab open (often 1–4 minutes — deep USA store sweep).</div>
         </div>`;
     }
 
@@ -972,7 +982,7 @@
       setModePill("searching");
       renderLoading(minPct);
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 180000);
+      const timer = setTimeout(() => ctrl.abort(), 300000);
       try {
         const res = await fetch(
           `/api/deals?zip=${encodeURIComponent(zip)}&store_id=${encodeURIComponent(storeId)}&min_discount_pct=${encodeURIComponent(minPct)}&mode=live`,
@@ -1079,14 +1089,24 @@
           const imgHtml = img
             ? `<img class="deal-img" src="${escapeHtml(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
             : `<div class="deal-img placeholder">IMG</div>`;
+          const stockLabel = (() => {
+            if (d.out_of_stock === true || String(d.stock_status || "").toLowerCase().includes("out")) {
+              return "Out of stock";
+            }
+            if (d.pickup_available === true) return "In stock · pickup";
+            if (d.in_stock === true || d.availability) return String(d.availability || d.stock_status || "In stock");
+            return "Stock n/a";
+          })();
+          const stockClass = stockLabel.toLowerCase().includes("out") ? "chip stock out" : "chip stock";
           return `
           <article class="deal">
             <div class="${dealClass(pct)}">${hasMd ? Math.round(pct) + "%" : "-"}</div>
             ${imgHtml}
             <div>
               <h4><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;">${escapeHtml(title)}</a></h4>
-              <div class="meta-line">${escapeHtml(brand)} · ${escapeHtml(category)}${saveLine}</div>
+              <div class="meta-line">${escapeHtml(brand)} · ${escapeHtml(category)}${saveLine} · SKU ${escapeHtml(String(d.product_id || ""))}</div>
               <span class="chip">${escapeHtml(String(d.deal_type || "shelf").replace(/_/g, " "))}${d.in_store === false ? "" : " · in store"}</span>
+              <span class="${stockClass}">${escapeHtml(stockLabel)}</span>
               <div class="meta-line" style="margin-top:6px;opacity:0.9">${escapeHtml(String(d.why_deal || d.notes || ""))}</div>
               <a class="deal-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open on Walmart</a>
             </div>
@@ -1097,12 +1117,12 @@
           </article>`;
         }).join("");
 
-        metaEl.textContent = "Live in-store markdowns for the selected store only.";
+        metaEl.textContent = "Live in-store markdowns + stock for the selected USA store.";
         statusEl.textContent = `${deals.length} deals found at ${storeName} (#${storeId}).`;
       } catch (e) {
         let msg = e.message || "Search failed";
         if (e.name === "AbortError") {
-          msg = "Search timed out. Live store pulls can take up to 3 minutes with the deeper sweep. Try again.";
+          msg = "Search timed out. Deep store pulls can take up to 4–5 minutes. Try again.";
         } else if (/failed to fetch|networkerror|load failed/i.test(String(msg))) {
           msg = "Connection dropped while loading live prices. Wait a few seconds and click Find deals again.";
         }
@@ -1116,7 +1136,7 @@
           storeId: storeEl.value || "",
           statusLabel: "Retry",
         });
-        metaEl.textContent = "Live pulls sometimes take 1–3 minutes with the deeper sweep. A second try usually works.";
+        metaEl.textContent = "Live pulls sometimes take 1–4 minutes with the deep sweep. A second try usually works.";
       } finally {
         clearTimeout(timer);
         $("btnReport").disabled = false;

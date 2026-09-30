@@ -207,7 +207,7 @@ def is_likely_instore_product(item: Dict[str, Any], *, require_signal: bool = Fa
         return False
 
     source = str(item.get("collection_source") or "")
-    if source in ("store_search", "store_page_search"):
+    if source in ("store_search", "store_page_search") or source.startswith("oxylabs"):
         return True
     if require_signal:
         return False

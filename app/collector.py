@@ -35,6 +35,13 @@ DEFAULT_QUERIES = [
     "clearance baby",
     "clearance sports",
     "clearance kitchen",
+    "clearance appliances",
+    "clearance cleaning",
+    "clearance outdoor",
+    "clearance furniture",
+    "clearance tools",
+    "rollback electronics",
+    "rollback home",
 ]
 
 _LIVE_COOLDOWN_UNTIL = 0.0

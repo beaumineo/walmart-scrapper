@@ -30,7 +30,8 @@ class DealThresholds:
     include_shelf: bool = False  # deals only — no plain shelf rows
     prefer_offer_flags: bool = True
     drop_online_only: bool = True
-    max_deals: int = 150
+    drop_out_of_stock: bool = False
+    max_deals: int = 300
     deals_only: bool = True  # drop minor_drop / shelf from output
 
     @classmethod
@@ -58,7 +59,8 @@ class DealThresholds:
             include_shelf=_b("DEAL_INCLUDE_SHELF", False),
             prefer_offer_flags=_b("DEAL_PREFER_OFFER_FLAGS", True),
             drop_online_only=_b("DEAL_DROP_ONLINE_ONLY", True),
-            max_deals=int(_f("DEAL_MAX_DEALS", 150)),
+            drop_out_of_stock=_b("DEAL_DROP_OOS", False),
+            max_deals=int(_f("DEAL_MAX_DEALS", 300)),
             deals_only=_b("DEAL_DEALS_ONLY", True),
         )
         if overrides:
@@ -139,7 +141,14 @@ def rank_score(deal: Dict[str, Any]) -> float:
         "shelf": 1,
         "minor_drop": 0,
     }.get(str(deal.get("deal_type") or ""), 0)
-    return pct * 2.0 + min(savings, 80) * 0.35 + type_boost + conf * 5
+    stock_boost = 0.0
+    if deal.get("out_of_stock") is True or deal.get("in_stock") is False:
+        stock_boost = -45.0
+    elif deal.get("pickup_available") is True:
+        stock_boost = 12.0
+    elif deal.get("in_stock") is True:
+        stock_boost = 6.0
+    return pct * 2.0 + min(savings, 80) * 0.35 + type_boost + conf * 5 + stock_boost
 
 
 def score_product(
@@ -156,6 +165,10 @@ def score_product(
         return None
 
     if thresholds.drop_online_only and p.get("in_store") is False:
+        return None
+    if thresholds.drop_out_of_stock and (
+        p.get("out_of_stock") is True or p.get("in_stock") is False
+    ):
         return None
 
     current = _num(p.get("current_price"))
@@ -210,6 +223,12 @@ def score_product(
             "image_url": p.get("image_url"),
             "in_store": True if p.get("in_store") is None else p.get("in_store"),
             "availability": p.get("availability"),
+            "in_stock": p.get("in_stock"),
+            "out_of_stock": p.get("out_of_stock"),
+            "stock_status": p.get("stock_status") or p.get("availability"),
+            "pickup_available": p.get("pickup_available"),
+            "delivery_available": p.get("delivery_available"),
+            "shipping_available": p.get("shipping_available"),
             "seller_type": p.get("seller_type"),
             "is_price_event": is_event,
             "why_deal": why_text,

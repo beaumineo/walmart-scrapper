@@ -17,5 +17,5 @@ COPY scripts ./scripts
 WORKDIR /app/app
 EXPOSE 8000
 # Shell form so Railway's $PORT is honored (often 8080)
-# Longer keep-alive for deeper multi-query Oxylabs sweeps (1–3 min)
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2 --timeout-keep-alive 180
+# Longer keep-alive for deep multi-query Oxylabs sweeps (up to ~5 min)
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2 --timeout-keep-alive 300
