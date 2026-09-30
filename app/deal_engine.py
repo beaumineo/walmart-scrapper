@@ -273,6 +273,15 @@ def detect_deals(
 
     deals.sort(
         key=lambda d: (
+            # Prefer items that look in-stock / pickuppable over OOS markdown noise.
+            1
+            if (
+                d.get("out_of_stock") is True
+                or d.get("in_stock") is False
+                or str(d.get("stock_status") or "").lower().startswith("out")
+                or str(d.get("availability") or "").lower().startswith("out")
+            )
+            else 0,
             -float(d.get("rank_score") or 0),
             -float(d.get("discount_pct") or 0),
             -float(d.get("savings") or 0),

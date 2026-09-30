@@ -120,7 +120,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.0.4-coverage-stock",
+            "build": "1.0.4-coverage-stock-v2",
         },
     }
 
