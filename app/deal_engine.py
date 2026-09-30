@@ -31,6 +31,11 @@ class DealThresholds:
     prefer_offer_flags: bool = True
     drop_online_only: bool = True
     drop_out_of_stock: bool = False
+    # Prefer confirmed pickup at this store. Soft mode keeps local clearance when
+    # Walmart omits pickup flags, but still drops national marketplace junk.
+    require_pickup: bool = False
+    prefer_pickup: bool = True
+    drop_unverified_deep_markdown: bool = True
     max_deals: int = 2000
     deals_only: bool = True  # drop minor_drop / shelf from output
 
@@ -60,6 +65,9 @@ class DealThresholds:
             prefer_offer_flags=_b("DEAL_PREFER_OFFER_FLAGS", True),
             drop_online_only=_b("DEAL_DROP_ONLINE_ONLY", True),
             drop_out_of_stock=_b("DEAL_DROP_OOS", False),
+            require_pickup=_b("DEAL_REQUIRE_PICKUP", False),
+            prefer_pickup=_b("DEAL_PREFER_PICKUP", True),
+            drop_unverified_deep_markdown=_b("DEAL_DROP_UNVERIFIED_DEEP", True),
             max_deals=int(_f("DEAL_MAX_DEALS", 2000)),
             deals_only=_b("DEAL_DEALS_ONLY", True),
         )
@@ -170,6 +178,8 @@ def score_product(
         p.get("out_of_stock") is True or p.get("in_stock") is False
     ):
         return None
+    if thresholds.require_pickup and p.get("pickup_available") is not True:
+        return None
 
     current = _num(p.get("current_price"))
     if current is None or current <= 0:
@@ -192,6 +202,14 @@ def score_product(
         pct = round((savings / compare) * 100, 1)
         # Hard floor: only show deals at/above the user's threshold.
         if pct < thresholds.min_discount_pct:
+            return None
+        # National marketplace junk often has huge % off but no store pickup flag,
+        # and repeats across every ZIP — drop those so store lists diverge.
+        if (
+            thresholds.drop_unverified_deep_markdown
+            and p.get("pickup_available") is not True
+            and pct >= 65.0
+        ):
             return None
         deal_type, confidence, why = classify_deal(
             discount_pct=pct,
@@ -273,12 +291,10 @@ def detect_deals(
 
     deals.sort(
         key=lambda d: (
-            # Prefer confirmed pickup, then any in-stock, then explicit OOS last.
+            # Prefer confirmed pickup so each store's top list looks local.
             0
-            if d.get("pickup_available") is True
-            else 1
-            if d.get("out_of_stock") is not True and d.get("in_stock") is not False
-            else 2,
+            if (not thr.prefer_pickup) or d.get("pickup_available") is True
+            else 1,
             -float(d.get("rank_score") or 0),
             -float(d.get("discount_pct") or 0),
             -float(d.get("savings") or 0),

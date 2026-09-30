@@ -27,7 +27,7 @@ app = FastAPI(
         "`GET /api/deals?zip=&store_id=&min_discount_pct=`.\n\n"
         "Live pulls are store-scoped (Oxylabs). Docs: `/docs`, `docs/API.md`, `docs/HANDOFF.md`."
     ),
-    version="1.0.6",
+    version="1.0.7",
     contact={"name": "Hidden Clearances Walmart module"},
 )
 
@@ -98,7 +98,7 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "1.0.6",
+        "version": "1.0.7",
         "milestone": 5,
         "milestones_complete": [0, 1, 2, 3, 4, 5],
         "proxy_count": len(cfg.proxies),
@@ -120,7 +120,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.0.6-stock-fix-uncap",
+            "build": "1.0.7-store-local-lists",
         },
     }
 
@@ -358,6 +358,7 @@ def api_deals(
     radius_miles: float = Query(50, ge=1, le=100),
     min_discount_pct: float = Query(20, ge=0, le=95),
     mode: str = Query("live", pattern="^(auto|live)$"),
+    refresh: int = Query(0, ge=0, le=1, description="1 = bypass short cache, force live pull"),
 ):
     """
     In-store deal report for the selected Walmart store.
@@ -376,6 +377,7 @@ def api_deals(
             radius_miles=radius_miles,
             min_discount_pct=min_discount_pct,
             prefer_live=prefer_live,
+            force_refresh=bool(refresh),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

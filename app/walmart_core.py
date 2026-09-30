@@ -574,6 +574,7 @@ def build_report(
     radius_miles: float = 50.0,
     min_discount_pct: float = 20.0,
     prefer_live: bool = True,
+    force_refresh: bool = False,
 ) -> Dict[str, Any]:
     loc, stores = find_stores_near_zip(zip_code, radius_miles=radius_miles)
     store = next((s for s in stores if s.store_id == store_id), None)
@@ -623,11 +624,12 @@ def build_report(
                 and str(cached.store_id) == sid
                 and zip_ok
             )
-            # Short TTL so ZIP/store switches don't keep serving stale catalogs
+            # Short TTL — store/ZIP switches should not feel "stuck" on one list
             fresh_same_store = bool(
-                same_store_cache
+                (not force_refresh)
+                and same_store_cache
                 and cache_age_sec is not None
-                and cache_age_sec < 20 * 60
+                and cache_age_sec < 3 * 60
             )
 
             pull = None

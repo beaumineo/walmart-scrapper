@@ -985,7 +985,7 @@
       const timer = setTimeout(() => ctrl.abort(), 300000);
       try {
         const res = await fetch(
-          `/api/deals?zip=${encodeURIComponent(zip)}&store_id=${encodeURIComponent(storeId)}&min_discount_pct=${encodeURIComponent(minPct)}&mode=live`,
+          `/api/deals?zip=${encodeURIComponent(zip)}&store_id=${encodeURIComponent(storeId)}&min_discount_pct=${encodeURIComponent(minPct)}&mode=live&refresh=1`,
           { signal: ctrl.signal }
         );
         const data = await res.json();
@@ -1116,8 +1116,8 @@
           </article>`;
         }).join("");
 
-        metaEl.textContent = "Live in-store markdowns + stock for the selected USA store.";
-        statusEl.textContent = `${deals.length} deals found at ${storeName} (#${storeId}).`;
+        metaEl.textContent = `Store-scoped pickup deals for #${storeId} only — change ZIP/store and search again to compare.`;
+        statusEl.textContent = `${deals.length} pickup deals found at ${storeName} (#${storeId}).`;
       } catch (e) {
         let msg = e.message || "Search failed";
         if (e.name === "AbortError") {
