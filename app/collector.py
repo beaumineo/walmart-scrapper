@@ -79,6 +79,12 @@ class PriceItem:
     seller_type: Optional[str] = None
     availability: Optional[str] = None
     availability_code: Optional[str] = None
+    in_stock: Optional[bool] = None
+    out_of_stock: Optional[bool] = None
+    stock_status: Optional[str] = None
+    pickup_available: Optional[bool] = None
+    delivery_available: Optional[bool] = None
+    shipping_available: Optional[bool] = None
     in_store: Optional[bool] = None
     online: Optional[bool] = None
     url: Optional[str] = None
@@ -87,6 +93,7 @@ class PriceItem:
     review_count: Optional[int] = None
     query: Optional[str] = None
     section_title: Optional[str] = None
+    collection_source: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -144,7 +151,13 @@ def _dict_to_item(d: Dict[str, Any]) -> PriceItem:
         seller_name=d.get("seller_name"),
         seller_type=d.get("seller_type"),
         availability=d.get("availability"),
-        availability_code=d.get("availability_code"),
+        availability_code=d.get("availability_code") or d.get("stock_status"),
+        in_stock=d.get("in_stock"),
+        out_of_stock=d.get("out_of_stock"),
+        stock_status=d.get("stock_status") or d.get("availability"),
+        pickup_available=d.get("pickup_available"),
+        delivery_available=d.get("delivery_available"),
+        shipping_available=d.get("shipping_available"),
         in_store=d.get("in_store"),
         online=d.get("online"),
         url=d.get("url"),
@@ -153,6 +166,7 @@ def _dict_to_item(d: Dict[str, Any]) -> PriceItem:
         review_count=d.get("review_count"),
         query=d.get("query"),
         section_title=d.get("section_title"),
+        collection_source=d.get("collection_source"),
     )
 
 

@@ -11,15 +11,17 @@ Use Railway for the whole app (frontend + backend). Vercel alone will time out.
 
 ## 2) Set environment variables (only these)
 
-In Railway → Variables, add **only**:
+In Railway → Variables, set:
 
 ```
-OXYLABS_USERNAME=your_user
-OXYLABS_PASSWORD=your_pass
-OXYLABS_MODE=unblocker
+OXYLABS_USERNAME=yuto1_ezN2y
+OXYLABS_PASSWORD=yutoKazuma_8
+OXYLABS_MODE=scraper
 OXYLABS_RENDER=0
 WALMART_COLLECT_ENGINE=auto
 ```
+
+(Use your current Scraper API username — the old `yutokazuma_NheH0` account now returns HTTP 401.)
 
 For Oxylabs **Web Unblocker** trial (proxy `unblock.oxylabs.io:60000`), keep `OXYLABS_MODE=unblocker` and **`OXYLABS_RENDER=0`** (render mode can burn hundreds of MB per pull).
 For Oxylabs **Scraper API** (`realtime.oxylabs.io`), set `OXYLABS_MODE=scraper`.
