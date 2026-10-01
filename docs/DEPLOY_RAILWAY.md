@@ -27,11 +27,13 @@ For Oxylabs **Scraper API** (`realtime.oxylabs.io`), set `OXYLABS_MODE=scraper`.
 Optional (defaults are fine if omitted):
 
 ```
-# Leave WALMART_QUERIES unset for unblocker (uses a short built-in list)
-WALMART_MAX_QUERIES=3
-WALMART_MAX_API_CALLS=3
-WALMART_PARALLEL_WORKERS=3
+# Prefer leaving these unset so code defaults (~20 queries / ~30 API calls) apply
+# WALMART_MAX_QUERIES=20
+# WALMART_MAX_API_CALLS=30
+# WALMART_PARALLEL_WORKERS=6
 DEAL_MAX_DEALS=2000
+DEAL_REQUIRE_PICKUP=0
+DEAL_WALMART_SELLER_ONLY=1
 DEAL_PREFER_PICKUP=1
 DEAL_DROP_UNVERIFIED_DEEP=1
 DEAL_DEALS_ONLY=1
@@ -41,7 +43,8 @@ WALMART_UC_ENABLED=0
 WALMART_ALLOW_BROWSER=0
 ```
 
-If Railway still has `WALMART_QUERIES=clearance,rollback`, **delete that variable** (or expand it) so the new deeper sweep can run.
+If Railway still has `WALMART_MAX_QUERIES=3` or `WALMART_MAX_API_CALLS=3`, **delete those** (or raise to 20/30) so the DealHawk-scale category sweep can run.
+If Railway still has `WALMART_QUERIES=clearance,rollback`, **delete that variable** so the high-yield category list is used.
 
 Ignore Railway "Suggested Variables" for empty keys like `PROXIES`, `WALMART_TMP_DIR`, etc. You do not need to fill those.
 

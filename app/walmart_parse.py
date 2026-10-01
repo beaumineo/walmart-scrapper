@@ -189,24 +189,27 @@ def extract_fulfillment_flags(node: Dict[str, Any]) -> Dict[str, Optional[bool]]
 
 
 def is_likely_instore_product(item: Dict[str, Any], *, require_signal: bool = False) -> bool:
-    """Keep shelf/pickup items; drop clear online-marketplace junk."""
+    """Keep shelf/pickup / Walmart store-scoped items; drop marketplace junk."""
     if item.get("pickup_available") is True or item.get("in_store") is True:
         return True
-    if item.get("pickup_available") is False or item.get("in_store") is False:
-        return False
 
     seller = str(item.get("seller_name") or "").strip().lower()
     seller_type = str(item.get("seller_type") or "").strip().upper()
+    is_walmart = bool(seller) and (
+        seller in ("walmart", "walmart.com", "walmart stores") or "walmart" in seller
+    )
     if seller_type in ("EXTERNAL", "MARKETPLACE", "THIRD_PARTY", "3P"):
         return False
-    if (
-        seller
-        and seller not in ("walmart", "walmart.com", "walmart stores")
-        and "walmart" not in seller
-    ):
+    if seller and not is_walmart:
         return False
 
     source = str(item.get("collection_source") or "")
+    # Oxylabs category search often returns pickup=false even for Walmart.com
+    # store-scoped results — still keep those (DealHawk-scale coverage).
+    if is_walmart and source.startswith("oxylabs"):
+        return True
+    if item.get("pickup_available") is False or item.get("in_store") is False:
+        return False
     if source in ("store_search", "store_page_search") or source.startswith("oxylabs"):
         return True
     if require_signal:

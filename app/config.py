@@ -196,12 +196,13 @@ class CollectorConfig:
     timeout_sec: float = 20.0
     max_per_query: int = 80
     queries: tuple = (
-        "clearance",
-        "rollback",
-        "special buy",
-        "markdown",
-        "clearance electronics",
+        "clearance kitchen",
         "clearance toys",
+        "clearance furniture",
+        "clearance 50%",
+        "clearance electronics",
+        "rollback electronics",
+        "clearance tools",
         "clearance home",
     )
     # auto | oxylabs | scraperapi | unlocker | curl | playwright | uc

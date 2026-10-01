@@ -701,7 +701,7 @@
         <div class="snap-ticks" aria-hidden="true">
           <span>10%</span><span>30%</span><span>50%</span><span>70%</span><span>90%</span>
         </div>
-        <p class="hint">20-40% finds more deals. 70%+ is uncommon and often returns zero.</p>
+        <p class="hint">Drag the slider to filter instantly after a search. 20–40% finds more; 70%+ is uncommon.</p>
       </div>
       <p class="status" id="status">Enter a ZIP, pick a store, then search for in-store markdowns.</p>
       <div class="error" id="error"></div>
@@ -953,7 +953,8 @@
             $("minPct").value = String(v);
             syncMinPctLabel();
           }
-          generateReport();
+          if (lastDealBag) applyDiscountFilter();
+          else generateReport();
         });
       });
     }
@@ -966,8 +967,131 @@
       dealsEl.innerHTML = `
         <div class="loading">
           <div class="spinner" aria-hidden="true"></div>
-          <div>Checking live in-store prices. Keep this tab open (often 30–60 seconds).</div>
+          <div>Checking live in-store prices. Keep this tab open (often 45–90 seconds for a full store sweep).</div>
         </div>`;
+    }
+
+    /** Floor used for the live pull so the slider can filter client-side. */
+    const FETCH_FLOOR_PCT = 10;
+
+    let lastDealBag = null; // { deals, storeId, storeName, mode, meta }
+
+    function summarizeDeals(deals) {
+      const n = deals.length;
+      if (!n) {
+        return { deal_count: 0, avg_discount_pct: 0, max_discount_pct: 0, total_savings_if_bought_all: 0 };
+      }
+      let sumPct = 0;
+      let maxPct = 0;
+      let savings = 0;
+      for (const d of deals) {
+        const pct = Number(d.discount_pct || 0);
+        sumPct += pct;
+        if (pct > maxPct) maxPct = pct;
+        savings += Number(d.savings || 0);
+      }
+      return {
+        deal_count: n,
+        avg_discount_pct: sumPct / n,
+        max_discount_pct: maxPct,
+        total_savings_if_bought_all: savings,
+      };
+    }
+
+    function renderDealCards(deals) {
+      return deals.map((d) => {
+        const title = String(d.title || "Walmart product");
+        const pct = Number(d.discount_pct || 0);
+        const current = Number(d.current_price);
+        const list = Number(d.list_price);
+        const hasMd = Number.isFinite(pct) && pct > 0 && Number.isFinite(list) && Number.isFinite(current) && list > current;
+        const url = safeUrl(d.url, title);
+        const img = String(d.image_url || "").trim();
+        const brand = d.brand || "Walmart";
+        const category = d.category || "General";
+        const saveLine = hasMd
+          ? ` · save $${Number(d.savings || (list - current)).toFixed(2)}`
+          : "";
+        const wasLine = hasMd
+          ? `<div class="was">$${list.toFixed(2)}</div>`
+          : `<div class="was">was n/a</div>`;
+        const imgHtml = img
+          ? `<img class="deal-img" src="${escapeHtml(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+          : `<div class="deal-img placeholder">IMG</div>`;
+        const stockLabel = (() => {
+          if (d.out_of_stock === true) return "Out of stock";
+          if (d.pickup_available === true) return "In stock · pickup";
+          if (String(d.availability || "").toLowerCase().includes("ship")) return "Ship only";
+          if (d.availability) return String(d.availability);
+          if (d.in_stock === false) return "Out of stock";
+          return "Stock n/a";
+        })();
+        const stockClass = (stockLabel.toLowerCase().includes("out of stock") || stockLabel.toLowerCase().includes("ship"))
+          ? "chip stock out"
+          : "chip stock";
+        const inStoreChip = d.pickup_available === true
+          ? `<span class="chip">${escapeHtml(String(d.deal_type || "deal").replace(/_/g, " "))} · pickup</span>`
+          : `<span class="chip">${escapeHtml(String(d.deal_type || "deal").replace(/_/g, " "))}</span>`;
+        return `
+          <article class="deal">
+            <div class="${dealClass(pct)}">${hasMd ? Math.round(pct) + "%" : "-"}</div>
+            ${imgHtml}
+            <div>
+              <h4><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;">${escapeHtml(title)}</a></h4>
+              <div class="meta-line">${escapeHtml(brand)} · ${escapeHtml(category)}${saveLine} · SKU ${escapeHtml(String(d.product_id || ""))}</div>
+              ${inStoreChip}
+              <span class="${stockClass}">${escapeHtml(stockLabel)}</span>
+              <div class="meta-line" style="margin-top:6px;opacity:0.9">${escapeHtml(String(d.why_deal || d.notes || ""))}</div>
+              <a class="deal-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open on Walmart</a>
+            </div>
+            <div class="prices">
+              <div class="now">$${Number.isFinite(current) ? current.toFixed(2) : "-"}</div>
+              ${wasLine}
+            </div>
+          </article>`;
+      }).join("");
+    }
+
+    function applyDiscountFilter() {
+      if (!lastDealBag) return;
+      const minPct = Number($("minPct")?.value || 20);
+      const { storeId, storeName, mode } = lastDealBag;
+      const deals = (lastDealBag.deals || []).filter((d) => Number(d.discount_pct || 0) >= minPct);
+      const summary = summarizeDeals(deals);
+      summaryEl.hidden = false;
+
+      if (!deals.length) {
+        dealsCount.textContent = `0 deals at ≥${minPct}% · ${storeName} (#${storeId})`;
+        summaryEl.innerHTML = `
+          <div class="stat"><span>Deals</span><b>0</b></div>
+          <div class="stat"><span>Your filter</span><b>≥${minPct}%</b></div>
+          <div class="stat"><span>Pool</span><b>${lastDealBag.deals.length}</b></div>
+          <div class="stat"><span>Status</span><b>Filtered</b></div>
+        `;
+        renderEmpty({
+          title: `No deals at ≥${minPct}%`,
+          body: `This store has ${lastDealBag.deals.length} markdown(s) in the live pool, but none meet ≥${minPct}%. Lower the slider to see more.`,
+          minPct,
+          storeId,
+          statusLabel: "Filtered",
+        });
+        statusEl.textContent = `Filter ≥${minPct}%: 0 of ${lastDealBag.deals.length} deals.`;
+        metaEl.textContent = "Slider filters the last live pull instantly — no re-scrape needed.";
+        return;
+      }
+
+      summaryEl.innerHTML = `
+        <div class="stat"><span>Deals</span><b>${summary.deal_count}</b></div>
+        <div class="stat"><span>Avg discount</span><b>${Number(summary.avg_discount_pct || 0).toFixed(0)}%</b></div>
+        <div class="stat"><span>Best discount</span><b>${Number(summary.max_discount_pct || 0).toFixed(0)}%</b></div>
+        <div class="stat"><span>Total savings</span><b>$${Number(summary.total_savings_if_bought_all || 0).toFixed(2)}</b></div>
+      `;
+      dealsHead.hidden = false;
+      dealsCount.textContent = `${deals.length} deals ≥${minPct}% · ${storeName} (#${storeId})${mode === "live_cached" ? " · cached" : ""}`;
+      setModePill(mode === "live_cached" ? "in-store (cached)" : "in-store live");
+      dealsEl.innerHTML = renderDealCards(deals);
+      metaEl.textContent = `Store-scoped pickup deals for #${storeId} — slider filters ${lastDealBag.deals.length} live markdowns instantly.`;
+      statusEl.textContent = `${deals.length} of ${lastDealBag.deals.length} deals ≥${minPct}% at ${storeName} (#${storeId}).`;
     }
 
     async function generateReport() {
@@ -978,14 +1102,16 @@
       const minPct = Number($("minPct")?.value || 20);
       $("btnReport").disabled = true;
       setSteps(3);
-      statusEl.textContent = `Searching store #${storeId} for deals >=${minPct}% off...`;
+      statusEl.textContent = `Searching store #${storeId} for in-store markdowns (filter ≥${minPct}% after load)...`;
       setModePill("searching");
       renderLoading(minPct);
+      lastDealBag = null;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 300000);
       try {
+        // Pull a wide floor so the discount slider can filter client-side (DealHawk-style).
         const res = await fetch(
-          `/api/deals?zip=${encodeURIComponent(zip)}&store_id=${encodeURIComponent(storeId)}&min_discount_pct=${encodeURIComponent(minPct)}&mode=live&refresh=1`,
+          `/api/deals?zip=${encodeURIComponent(zip)}&store_id=${encodeURIComponent(storeId)}&min_discount_pct=${encodeURIComponent(FETCH_FLOOR_PCT)}&mode=live&refresh=1`,
           { signal: ctrl.signal }
         );
         const data = await res.json();
@@ -1005,28 +1131,6 @@
           clearError();
         }
 
-        // Live ok but slider filtered everything out
-        if (liveOk && deals.length === 0 && (mode === "live" || mode === "live_cached")) {
-          setModePill(mode === "live_cached" ? "in-store (cached)" : "in-store live");
-          dealsCount.textContent = `0 deals at >=${minPct}% · ${storeName} (#${storeId})`;
-          summaryEl.innerHTML = `
-            <div class="stat"><span>Deals</span><b>0</b></div>
-            <div class="stat"><span>Your filter</span><b>≥${minPct}%</b></div>
-            <div class="stat"><span>Store</span><b>#${escapeHtml(storeId)}</b></div>
-            <div class="stat"><span>Status</span><b>Live</b></div>
-          `;
-          renderEmpty({
-            title: `No deals at >=${minPct}%`,
-            body: `${storeName} loaded live in-store prices, but none are currently ${minPct}%+ off vs was/list. Lower the minimum discount to see more.`,
-            minPct,
-            storeId,
-          });
-          statusEl.textContent = `Live check done for #${storeId}: 0 deals at >=${minPct}%.`;
-          metaEl.textContent = "Only products meeting your discount threshold are shown.";
-          return;
-        }
-
-        // Failed for this store — only show setup when credentials are truly missing
         if (!liveOk || mode === "failed" || mode === "failed_no_proxy" || mode === "setup_required" || mode === "sample") {
           const needsSetup = mode === "setup_required";
           setModePill(needsSetup ? "setup needed" : "failed");
@@ -1046,7 +1150,7 @@
             title: needsSetup ? "Server credentials missing" : `Could not load deals for #${storeId}`,
             body: needsSetup
               ? "Set OXYLABS_USERNAME and OXYLABS_PASSWORD in Railway Variables, then redeploy."
-              : (userErr || `No results for this store at >=${minPct}%. Try another store or a lower filter.`),
+              : (userErr || `No results for this store. Try another store or Find deals again.`),
             minPct,
             storeId,
             setup: needsSetup,
@@ -1058,72 +1162,8 @@
           return;
         }
 
-        summaryEl.hidden = false;
-        summaryEl.innerHTML = `
-          <div class="stat"><span>Deals</span><b>${data.summary.deal_count}</b></div>
-          <div class="stat"><span>Avg discount</span><b>${Number(data.summary.avg_discount_pct || 0).toFixed(0)}%</b></div>
-          <div class="stat"><span>Best discount</span><b>${Number(data.summary.max_discount_pct || 0).toFixed(0)}%</b></div>
-          <div class="stat"><span>Total savings</span><b>$${Number(data.summary.total_savings_if_bought_all || 0).toFixed(2)}</b></div>
-        `;
-
-        dealsHead.hidden = false;
-        dealsCount.textContent = `${deals.length} deals ≥${minPct}% · ${storeName} (#${storeId})${mode === "live_cached" ? " · cached" : ""}`;
-        setModePill(mode === "live_cached" ? "in-store (cached)" : "in-store live");
-
-        dealsEl.innerHTML = deals.map((d) => {
-          const title = String(d.title || "Walmart product");
-          const pct = Number(d.discount_pct || 0);
-          const current = Number(d.current_price);
-          const list = Number(d.list_price);
-          const hasMd = Number.isFinite(pct) && pct > 0 && Number.isFinite(list) && Number.isFinite(current) && list > current;
-          const url = safeUrl(d.url, title);
-          const img = String(d.image_url || "").trim();
-          const brand = d.brand || "Walmart";
-          const category = d.category || "General";
-          const saveLine = hasMd
-            ? ` · save $${Number(d.savings || (list - current)).toFixed(2)}`
-            : "";
-          const wasLine = hasMd
-            ? `<div class="was">$${list.toFixed(2)}</div>`
-            : `<div class="was">was n/a</div>`;
-          const imgHtml = img
-            ? `<img class="deal-img" src="${escapeHtml(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
-            : `<div class="deal-img placeholder">IMG</div>`;
-          const stockLabel = (() => {
-            if (d.out_of_stock === true) return "Out of stock";
-            if (d.pickup_available === true) return "In stock · pickup";
-            if (String(d.availability || "").toLowerCase().includes("ship")) return "Ship only";
-            if (d.availability) return String(d.availability);
-            if (d.in_stock === false) return "Out of stock";
-            return "Stock n/a";
-          })();
-          const stockClass = (stockLabel.toLowerCase().includes("out of stock") || stockLabel.toLowerCase().includes("ship"))
-            ? "chip stock out"
-            : "chip stock";
-          const inStoreChip = d.pickup_available === true
-            ? `<span class="chip">${escapeHtml(String(d.deal_type || "deal").replace(/_/g, " "))} · pickup</span>`
-            : `<span class="chip">${escapeHtml(String(d.deal_type || "deal").replace(/_/g, " "))}</span>`;
-          return `
-          <article class="deal">
-            <div class="${dealClass(pct)}">${hasMd ? Math.round(pct) + "%" : "-"}</div>
-            ${imgHtml}
-            <div>
-              <h4><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;">${escapeHtml(title)}</a></h4>
-              <div class="meta-line">${escapeHtml(brand)} · ${escapeHtml(category)}${saveLine} · SKU ${escapeHtml(String(d.product_id || ""))}</div>
-              ${inStoreChip}
-              <span class="${stockClass}">${escapeHtml(stockLabel)}</span>
-              <div class="meta-line" style="margin-top:6px;opacity:0.9">${escapeHtml(String(d.why_deal || d.notes || ""))}</div>
-              <a class="deal-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open on Walmart</a>
-            </div>
-            <div class="prices">
-              <div class="now">$${Number.isFinite(current) ? current.toFixed(2) : "-"}</div>
-              ${wasLine}
-            </div>
-          </article>`;
-        }).join("");
-
-        metaEl.textContent = `Store-scoped pickup deals for #${storeId} only — change ZIP/store and search again to compare.`;
-        statusEl.textContent = `${deals.length} pickup deals found at ${storeName} (#${storeId}).`;
+        lastDealBag = { deals, storeId, storeName, mode, meta: data.meta || {} };
+        applyDiscountFilter();
       } catch (e) {
         let msg = e.message || "Search failed";
         if (e.name === "AbortError") {
@@ -1164,19 +1204,24 @@
       storeEl.innerHTML = '<option value="">Find stores for this ZIP</option>';
       storeEl.disabled = true;
       $("btnReport").disabled = true;
+      lastDealBag = null;
       clearResults();
       clearError();
       setSteps(1);
       statusEl.textContent = "ZIP changed. Click Find stores, then Find deals.";
     });
     storeEl.addEventListener("change", () => {
+      lastDealBag = null;
       clearResults();
       setSteps(2);
       statusEl.textContent = `Store #${storeEl.value} selected. Set discount %, then Find deals.`;
     });
     const minPctEl = $("minPct");
     if (minPctEl) {
-      minPctEl.addEventListener("input", syncMinPctLabel);
+      minPctEl.addEventListener("input", () => {
+        syncMinPctLabel();
+        if (lastDealBag) applyDiscountFilter();
+      });
       syncMinPctLabel();
     }
     zipEl.addEventListener("keydown", (e) => {

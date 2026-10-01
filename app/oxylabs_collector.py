@@ -117,7 +117,19 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
     section = str(general.get("section_title") or raw.get("section_title") or "").strip()
     badge = str(general.get("badge") or "").strip().lower()
     offer_type = _infer_offer_type(query=query, section_title=section, badge=badge)
+    seller_name = seller.get("name") or raw.get("seller_name")
+    is_walmart = bool(seller_name) and "walmart" in str(seller_name).lower()
     stock = _stock_fields(raw, general)
+    # Oxylabs often sets fulfillment.pickup=false on category clearance even when
+    # the search is store-scoped + Walmart.com — still treat as store deal so we
+    # match DealHawk coverage. Marketplace 3P stays out via seller check.
+    in_store: Optional[bool]
+    if stock["pickup_available"] is True or is_walmart:
+        in_store = True
+    elif stock["pickup_available"] is False:
+        in_store = False
+    else:
+        in_store = None
 
     item: Dict[str, Any] = {
         "product_id": pid or title[:40],
@@ -130,23 +142,20 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
         "offer_type": offer_type,
         "is_reduced": is_reduced,
         "is_price_event": bool(is_reduced or offer_type),
-        "seller_name": seller.get("name") or raw.get("seller_name"),
+        "seller_name": seller_name,
         "availability": stock["availability"],
         "availability_code": stock["stock_status"],
-        "in_stock": stock["in_stock"],
+        "in_stock": stock["in_stock"] if not is_walmart else (False if stock["out_of_stock"] else True),
         "out_of_stock": stock["out_of_stock"],
         "pickup_available": stock["pickup_available"],
         "delivery_available": stock["delivery_available"],
         "shipping_available": stock["shipping_available"],
-        "stock_status": stock["stock_status"],
-        # Only confirmed pickup = in-store. Unknown stays None (not invented).
-        "in_store": (
-            True
-            if stock["pickup_available"] is True
-            else False
-            if stock["pickup_available"] is False
-            else None
+        "stock_status": (
+            "In stock · Walmart"
+            if is_walmart and stock["pickup_available"] is not True and not stock["out_of_stock"]
+            else stock["stock_status"]
         ),
+        "in_store": in_store,
         "online": True,
         "url": url or None,
         "image_url": image,
@@ -171,56 +180,64 @@ def _infer_offer_type(*, query: str, section_title: str, badge: str) -> Optional
     return None
 
 
-# Broad store sweep across deal keywords + department clearance.
-# Aimed at DealHawk-scale lists (~300) while staying store-scoped.
+# DealHawk-style coverage: category clearance queries return was/list prices
+# ~60–87% of the time. Bare "clearance"/"special buy" are mostly full-price
+# noise (~10–20% strikethrough) and starve the discount slider.
 DEFAULT_QUERIES = (
-    "clearance",
-    "rollback",
-    "special buy",
-    "markdown",
-    "reduced price",
-    "clearance electronics",
-    "clearance toys",
-    "clearance home",
-    "clearance apparel",
-    "clearance grocery",
-    "clearance beauty",
-    "clearance baby",
-    "clearance sports",
     "clearance kitchen",
-    "clearance appliances",
-    "clearance cleaning",
-    "clearance outdoor",
-    "clearance patio",
+    "clearance toys",
     "clearance furniture",
-    "clearance tools",
-    "clearance pets",
-    "clearance automotive",
-    "clearance office",
-    "clearance health",
+    "clearance 50%",
+    "clearance electronics",
     "rollback electronics",
+    "clearance tools",
+    "clearance home",
+    "clearance 70%",
+    "hidden clearance",
+    "clearance outdoor",
+    "clearance baby",
+    "clearance apparel",
+    '"clearance"',
+    "clearance grocery",
+    "rollback",
+    "clearance patio",
+    "clearance sports",
+    "clearance appliances",
+    "markdown",
+    "special buy",
+    "clearance",
+    "reduced price",
     "rollback home",
+    "clearance cleaning",
 )
 
 # Extra pages for high-yield queries (Oxylabs start_page).
 DEEP_PAGE_QUERIES = {
-    "clearance",
-    "rollback",
+    "clearance kitchen",
+    "clearance toys",
+    "clearance furniture",
+    "clearance electronics",
+    "clearance tools",
+    "clearance home",
+    "hidden clearance",
+    "rollback electronics",
+    "clearance 50%",
+    "clearance 70%",
 }
 # Second page for solid category queries (budget-friendly).
 MID_PAGE_QUERIES = {
-    "special buy",
-    "markdown",
-    "clearance electronics",
-    "clearance home",
+    "clearance outdoor",
+    "clearance baby",
     "clearance apparel",
-    "clearance toys",
-    "clearance appliances",
+    '"clearance"',
     "clearance grocery",
-    "clearance cleaning",
-    "clearance kitchen",
-    "rollback electronics",
+    "rollback",
+    "clearance patio",
+    "clearance sports",
+    "clearance appliances",
+    "markdown",
     "rollback home",
+    "clearance cleaning",
 }
 
 
@@ -319,8 +336,16 @@ def fetch_walmart_search(
 
 
 def _build_query_queue(queries: Optional[Sequence[str]], cfg: CollectorConfig) -> List[str]:
-    """Merge caller/env queries with the deep default sweep (deduped, order kept)."""
-    primary = list(queries or cfg.queries or DEFAULT_QUERIES)
+    """Prefer high-yield DEFAULT_QUERIES unless WALMART_QUERIES is set explicitly."""
+    env_queries = os.environ.get("WALMART_QUERIES", "").strip()
+    if queries:
+        primary = list(queries)
+    elif env_queries:
+        primary = list(cfg.queries or [])
+    else:
+        # Ignore stale low-yield CollectorConfig defaults (clearance/rollback first).
+        primary = list(DEFAULT_QUERIES)
+
     queued: List[str] = []
     seen = set()
     for q in list(primary) + list(DEFAULT_QUERIES):
@@ -329,7 +354,7 @@ def _build_query_queue(queries: Optional[Sequence[str]], cfg: CollectorConfig) -
             continue
         seen.add(key)
         queued.append(str(q).strip())
-    max_q = max(8, _env_int("WALMART_MAX_QUERIES", 26))
+    max_q = max(18, _env_int("WALMART_MAX_QUERIES", 24))
     return queued[:max_q]
 
 
@@ -354,9 +379,9 @@ def collect_store_via_oxylabs(
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     queued = _build_query_queue(queries, cfg)
-    pages_deep = max(1, min(4, _env_int("WALMART_PAGES_PER_QUERY", 3)))
-    max_api_calls = max(10, _env_int("WALMART_MAX_API_CALLS", 40))
-    workers = max(1, min(12, _env_int("WALMART_PARALLEL_WORKERS", 8)))
+    pages_deep = max(1, min(4, _env_int("WALMART_PAGES_PER_QUERY", 2)))
+    max_api_calls = max(24, _env_int("WALMART_MAX_API_CALLS", 36))
+    workers = max(1, min(12, _env_int("WALMART_PARALLEL_WORKERS", 6)))
 
     all_products: List[Dict[str, Any]] = []
     seen = set()

@@ -31,8 +31,9 @@ class DealThresholds:
     prefer_offer_flags: bool = True
     drop_online_only: bool = True
     drop_out_of_stock: bool = False
-    # Only keep items available for pickup at THIS store (kills marketplace clones).
-    require_pickup: bool = True
+    # Soft by default: Oxylabs category clearance often omits pickup=true.
+    # Marketplace clones are blocked by walmart_seller_only instead.
+    require_pickup: bool = False
     prefer_pickup: bool = True
     drop_unverified_deep_markdown: bool = True
     # Marketplace 3P sellers repeat the same "clearance" across every ZIP.
@@ -66,7 +67,7 @@ class DealThresholds:
             prefer_offer_flags=_b("DEAL_PREFER_OFFER_FLAGS", True),
             drop_online_only=_b("DEAL_DROP_ONLINE_ONLY", True),
             drop_out_of_stock=_b("DEAL_DROP_OOS", False),
-            require_pickup=_b("DEAL_REQUIRE_PICKUP", True),
+            require_pickup=_b("DEAL_REQUIRE_PICKUP", False),
             prefer_pickup=_b("DEAL_PREFER_PICKUP", True),
             drop_unverified_deep_markdown=_b("DEAL_DROP_UNVERIFIED_DEEP", True),
             walmart_seller_only=_b("DEAL_WALMART_SELLER_ONLY", True),
@@ -245,7 +246,7 @@ def score_product(
             "confidence": confidence,
             "url": p.get("url"),
             "image_url": p.get("image_url"),
-            "in_store": p.get("pickup_available") is True,
+            "in_store": bool(p.get("in_store")) if p.get("in_store") is not None else (p.get("pickup_available") is True),
             "availability": p.get("availability"),
             "in_stock": p.get("in_stock"),
             "out_of_stock": p.get("out_of_stock"),
