@@ -179,14 +179,10 @@ def collect_store_via_oxylabs_unblocker(
                 p["store_id"] = sid
                 p["collection_source"] = f"oxylabs_unblocker:{source}"
                 p["query"] = q
-                if p.get("in_store") is None:
-                    p["in_store"] = True
-                if p.get("pickup_available") is None and p.get("in_store"):
-                    p["pickup_available"] = True
-                if p.get("availability") is None:
-                    p["availability"] = "In stock · pickup"
-                if p.get("in_stock") is None:
-                    p["in_stock"] = True
+                # Do NOT invent pickup/in-store — marketplace ship clones look
+                # identical across every ZIP when we force those flags.
+                if p.get("pickup_available") is not True:
+                    p["in_store"] = False
                 if not is_likely_instore_product(p):
                     continue
                 kept.append(p)

@@ -190,9 +190,9 @@ def extract_fulfillment_flags(node: Dict[str, Any]) -> Dict[str, Optional[bool]]
 
 def is_likely_instore_product(item: Dict[str, Any], *, require_signal: bool = False) -> bool:
     """Keep shelf/pickup items; drop clear online-marketplace junk."""
-    if item.get("in_store") is True:
+    if item.get("pickup_available") is True or item.get("in_store") is True:
         return True
-    if item.get("in_store") is False:
+    if item.get("pickup_available") is False or item.get("in_store") is False:
         return False
 
     seller = str(item.get("seller_name") or "").strip().lower()

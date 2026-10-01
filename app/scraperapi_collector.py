@@ -124,7 +124,9 @@ def _fetch_structured_search(query: str, cfg: CollectorConfig) -> List[Dict[str,
                 "availability": it.get("availability"),
                 "url": url,
                 "image_url": it.get("image"),
-                "in_store": True,
+                # Never invent in-store/pickup — 3P ship clones fake "local" deals.
+                "in_store": None,
+                "pickup_available": None,
                 "online": True,
                 "query": query,
                 "collection_source": "scraperapi_structured",
@@ -173,8 +175,9 @@ def collect_store_via_scraperapi(
                 for p in products:
                     p["store_id"] = str(store_id)
                     p["collection_source"] = f"scraperapi_{source}"
-                    if p.get("in_store") is None:
-                        p["in_store"] = True
+                    # Do not invent in-store — let deal_engine require pickup.
+                    if p.get("pickup_available") is not True:
+                        p["in_store"] = False if p.get("pickup_available") is False else p.get("in_store")
                     if not is_likely_instore_product(p):
                         continue
                     kept.append(p)

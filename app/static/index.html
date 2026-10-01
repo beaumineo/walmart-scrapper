@@ -1092,11 +1092,17 @@
           const stockLabel = (() => {
             if (d.out_of_stock === true) return "Out of stock";
             if (d.pickup_available === true) return "In stock · pickup";
+            if (String(d.availability || "").toLowerCase().includes("ship")) return "Ship only";
             if (d.availability) return String(d.availability);
             if (d.in_stock === false) return "Out of stock";
-            return "In stock";
+            return "Stock n/a";
           })();
-          const stockClass = stockLabel.toLowerCase().includes("out of stock") ? "chip stock out" : "chip stock";
+          const stockClass = (stockLabel.toLowerCase().includes("out of stock") || stockLabel.toLowerCase().includes("ship"))
+            ? "chip stock out"
+            : "chip stock";
+          const inStoreChip = d.pickup_available === true
+            ? `<span class="chip">${escapeHtml(String(d.deal_type || "deal").replace(/_/g, " "))} · pickup</span>`
+            : `<span class="chip">${escapeHtml(String(d.deal_type || "deal").replace(/_/g, " "))}</span>`;
           return `
           <article class="deal">
             <div class="${dealClass(pct)}">${hasMd ? Math.round(pct) + "%" : "-"}</div>
@@ -1104,7 +1110,7 @@
             <div>
               <h4><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;">${escapeHtml(title)}</a></h4>
               <div class="meta-line">${escapeHtml(brand)} · ${escapeHtml(category)}${saveLine} · SKU ${escapeHtml(String(d.product_id || ""))}</div>
-              <span class="chip">${escapeHtml(String(d.deal_type || "shelf").replace(/_/g, " "))}${d.in_store === false ? "" : " · in store"}</span>
+              ${inStoreChip}
               <span class="${stockClass}">${escapeHtml(stockLabel)}</span>
               <div class="meta-line" style="margin-top:6px;opacity:0.9">${escapeHtml(String(d.why_deal || d.notes || ""))}</div>
               <a class="deal-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open on Walmart</a>

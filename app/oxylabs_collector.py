@@ -66,20 +66,20 @@ def _stock_fields(raw: Dict[str, Any], general: Dict[str, Any]) -> Dict[str, Any
         availability = "In stock · pickup"
         stock_status = "In stock"
     elif delivery is True or shipping is True:
+        # Online/marketplace ship — NOT an in-store pickup deal.
         in_stock = True
-        availability = "Ship/delivery available"
-        stock_status = "In stock"
+        availability = "Ship only (not in-store)"
+        stock_status = "Ship only"
     else:
-        # Fulfillment flags missing/false but Walmart did not mark OOS.
-        in_stock = True
-        availability = "In stock"
-        stock_status = "In stock"
+        in_stock = False
+        availability = "Store stock unconfirmed"
+        stock_status = "Unconfirmed"
 
     return {
         "availability": availability,
         "in_stock": in_stock,
         "out_of_stock": oos,
-        "pickup_available": bool(pickup) if pickup is not None else None,
+        "pickup_available": True if pickup is True else False if pickup is False else None,
         "delivery_available": bool(delivery) if delivery is not None else None,
         "shipping_available": bool(shipping) if shipping is not None else None,
         "stock_status": stock_status,
@@ -139,9 +139,14 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
         "delivery_available": stock["delivery_available"],
         "shipping_available": stock["shipping_available"],
         "stock_status": stock["stock_status"],
-        # Store-scoped Oxylabs search is already localized to store_id + zip.
-        # Do not drop rows just because pickup flag is false on some categories.
-        "in_store": True,
+        # Only confirmed pickup = in-store. Unknown stays None (not invented).
+        "in_store": (
+            True
+            if stock["pickup_available"] is True
+            else False
+            if stock["pickup_available"] is False
+            else None
+        ),
         "online": True,
         "url": url or None,
         "image_url": image,

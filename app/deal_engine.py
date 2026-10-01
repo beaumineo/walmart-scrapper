@@ -31,11 +31,12 @@ class DealThresholds:
     prefer_offer_flags: bool = True
     drop_online_only: bool = True
     drop_out_of_stock: bool = False
-    # Prefer confirmed pickup at this store. Soft mode keeps local clearance when
-    # Walmart omits pickup flags, but still drops national marketplace junk.
-    require_pickup: bool = False
+    # Only keep items available for pickup at THIS store (kills marketplace clones).
+    require_pickup: bool = True
     prefer_pickup: bool = True
     drop_unverified_deep_markdown: bool = True
+    # Marketplace 3P sellers repeat the same "clearance" across every ZIP.
+    walmart_seller_only: bool = True
     max_deals: int = 2000
     deals_only: bool = True  # drop minor_drop / shelf from output
 
@@ -65,9 +66,10 @@ class DealThresholds:
             prefer_offer_flags=_b("DEAL_PREFER_OFFER_FLAGS", True),
             drop_online_only=_b("DEAL_DROP_ONLINE_ONLY", True),
             drop_out_of_stock=_b("DEAL_DROP_OOS", False),
-            require_pickup=_b("DEAL_REQUIRE_PICKUP", False),
+            require_pickup=_b("DEAL_REQUIRE_PICKUP", True),
             prefer_pickup=_b("DEAL_PREFER_PICKUP", True),
             drop_unverified_deep_markdown=_b("DEAL_DROP_UNVERIFIED_DEEP", True),
+            walmart_seller_only=_b("DEAL_WALMART_SELLER_ONLY", True),
             max_deals=int(_f("DEAL_MAX_DEALS", 2000)),
             deals_only=_b("DEAL_DEALS_ONLY", True),
         )
@@ -180,6 +182,10 @@ def score_product(
         return None
     if thresholds.require_pickup and p.get("pickup_available") is not True:
         return None
+    if thresholds.walmart_seller_only:
+        seller = str(p.get("seller_name") or "").strip().lower()
+        if seller and "walmart" not in seller:
+            return None
 
     current = _num(p.get("current_price"))
     if current is None or current <= 0:
@@ -239,7 +245,7 @@ def score_product(
             "confidence": confidence,
             "url": p.get("url"),
             "image_url": p.get("image_url"),
-            "in_store": True if p.get("in_store") is None else p.get("in_store"),
+            "in_store": p.get("pickup_available") is True,
             "availability": p.get("availability"),
             "in_stock": p.get("in_stock"),
             "out_of_stock": p.get("out_of_stock"),
@@ -247,6 +253,7 @@ def score_product(
             "pickup_available": p.get("pickup_available"),
             "delivery_available": p.get("delivery_available"),
             "shipping_available": p.get("shipping_available"),
+            "seller_name": p.get("seller_name"),
             "seller_type": p.get("seller_type"),
             "is_price_event": is_event,
             "why_deal": why_text,
