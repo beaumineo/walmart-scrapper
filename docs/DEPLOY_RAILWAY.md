@@ -27,15 +27,17 @@ For Oxylabs **Scraper API** (`realtime.oxylabs.io`), set `OXYLABS_MODE=scraper`.
 Optional (defaults are fine if omitted):
 
 ```
-# Prefer leaving these unset so code defaults (~20 queries / ~30 API calls) apply
-# WALMART_MAX_QUERIES=20
-# WALMART_MAX_API_CALLS=30
+# Prefer leaving these unset so code defaults (~18 search queries + ~40 product enrich) apply
+# WALMART_MAX_QUERIES=18
+# WALMART_MAX_API_CALLS=24
+# WALMART_ENRICH_MAX=40
 # WALMART_PARALLEL_WORKERS=6
 DEAL_MAX_DEALS=2000
-DEAL_REQUIRE_PICKUP=0
+DEAL_REQUIRE_PICKUP=1
 DEAL_WALMART_SELLER_ONLY=1
 DEAL_PREFER_PICKUP=1
 DEAL_DROP_UNVERIFIED_DEEP=1
+DEAL_DROP_UNVERIFIED_DEEP_PCT=20
 DEAL_DEALS_ONLY=1
 DEAL_INCLUDE_SHELF=0
 DEAL_MIN_DISCOUNT_PCT=20

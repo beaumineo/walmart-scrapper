@@ -120,11 +120,10 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
     seller_name = seller.get("name") or raw.get("seller_name")
     is_walmart = bool(seller_name) and "walmart" in str(seller_name).lower()
     stock = _stock_fields(raw, general)
-    # Oxylabs often sets fulfillment.pickup=false on category clearance even when
-    # the search is store-scoped + Walmart.com — still treat as store deal so we
-    # match DealHawk coverage. Marketplace 3P stays out via seller check.
+    # NEVER invent in-store from seller alone — that floods every ZIP with the
+    # same national Walmart.com markdowns (Frigidaire/Sterilite clones).
     in_store: Optional[bool]
-    if stock["pickup_available"] is True or is_walmart:
+    if stock["pickup_available"] is True:
         in_store = True
     elif stock["pickup_available"] is False:
         in_store = False
@@ -145,16 +144,12 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
         "seller_name": seller_name,
         "availability": stock["availability"],
         "availability_code": stock["stock_status"],
-        "in_stock": stock["in_stock"] if not is_walmart else (False if stock["out_of_stock"] else True),
+        "in_stock": stock["in_stock"],
         "out_of_stock": stock["out_of_stock"],
         "pickup_available": stock["pickup_available"],
         "delivery_available": stock["delivery_available"],
         "shipping_available": stock["shipping_available"],
-        "stock_status": (
-            "In stock · Walmart"
-            if is_walmart and stock["pickup_available"] is not True and not stock["out_of_stock"]
-            else stock["stock_status"]
-        ),
+        "stock_status": stock["stock_status"],
         "in_store": in_store,
         "online": True,
         "url": url or None,
@@ -163,6 +158,7 @@ def _map_item(raw: Dict[str, Any], query: str, store_id: str) -> Optional[Dict[s
         "section_title": section or None,
         "store_id": str(store_id),
         "collection_source": "oxylabs_walmart_search",
+        "is_walmart_seller": is_walmart,
     }
     return item
 
@@ -180,63 +176,64 @@ def _infer_offer_type(*, query: str, section_title: str, badge: str) -> Optional
     return None
 
 
-# DealHawk-style coverage: category clearance queries return was/list prices
-# ~60–87% of the time. Bare "clearance"/"special buy" are mostly full-price
-# noise (~10–20% strikethrough) and starve the discount slider.
+# Store-scoped sweep: lead with queries that return pickup=true + was/list,
+# then category clearance (kept only when pickup is confirmed at this store).
 DEFAULT_QUERIES = (
+    "clearance",
+    "rollback",
+    "hidden clearance",
+    '"clearance"',
+    "clearance 50%",
+    "clearance 70%",
+    "markdown",
+    "special buy",
     "clearance kitchen",
     "clearance toys",
-    "clearance furniture",
-    "clearance 50%",
     "clearance electronics",
-    "rollback electronics",
-    "clearance tools",
     "clearance home",
-    "clearance 70%",
-    "hidden clearance",
+    "clearance furniture",
+    "clearance tools",
+    "rollback electronics",
     "clearance outdoor",
     "clearance baby",
     "clearance apparel",
-    '"clearance"',
     "clearance grocery",
-    "rollback",
-    "clearance patio",
     "clearance sports",
     "clearance appliances",
-    "markdown",
-    "special buy",
-    "clearance",
-    "reduced price",
     "rollback home",
+    "clearance patio",
+    "reduced price",
     "clearance cleaning",
 )
 
 # Extra pages for high-yield queries (Oxylabs start_page).
 DEEP_PAGE_QUERIES = {
+    "clearance",
+    "rollback",
+    "hidden clearance",
     "clearance kitchen",
     "clearance toys",
-    "clearance furniture",
     "clearance electronics",
-    "clearance tools",
     "clearance home",
-    "hidden clearance",
+    "clearance furniture",
+    "clearance tools",
     "rollback electronics",
     "clearance 50%",
     "clearance 70%",
 }
 # Second page for solid category queries (budget-friendly).
 MID_PAGE_QUERIES = {
+    '"clearance"',
+    "markdown",
+    "special buy",
     "clearance outdoor",
     "clearance baby",
     "clearance apparel",
-    '"clearance"',
     "clearance grocery",
-    "rollback",
-    "clearance patio",
     "clearance sports",
     "clearance appliances",
-    "markdown",
     "rollback home",
+    "clearance patio",
     "clearance cleaning",
 }
 
@@ -335,6 +332,170 @@ def fetch_walmart_search(
     }
 
 
+def fetch_walmart_product(
+    product_id: str,
+    store_id: str,
+    postal_code: Optional[str] = None,
+    cfg: Optional[CollectorConfig] = None,
+) -> Dict[str, Any]:
+    """Store-scoped product lookup — reliable pickup flag (search often lies)."""
+    cfg = cfg or get_collector_config()
+    if not oxylabs_enabled(cfg):
+        raise RuntimeError("Oxylabs not configured")
+
+    import requests
+
+    postal = "".join(c for c in str(postal_code or "") if c.isdigit()).zfill(5)[:5]
+    payload: Dict[str, Any] = {
+        "source": "walmart_product",
+        "product_id": str(product_id),
+        "parse": True,
+        "domain": "com",
+        "store_id": str(store_id),
+        "fulfillment_type": "pickup",
+    }
+    if len(postal) == 5:
+        payload["delivery_zip"] = postal
+
+    timeout = max(45, min(90, int(cfg.timeout_sec) + 35))
+    resp = requests.post(
+        "https://realtime.oxylabs.io/v1/queries",
+        auth=(cfg.oxylabs_username, cfg.oxylabs_password),
+        json=payload,
+        timeout=timeout,
+    )
+    if resp.status_code == 401:
+        raise RuntimeError("Oxylabs auth failed (check OXYLABS_USERNAME/PASSWORD)")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Oxylabs product http={resp.status_code}: {resp.text[:200]}")
+
+    data = resp.json() if resp.content else {}
+    results = data.get("results") if isinstance(data, dict) else None
+    content = None
+    if isinstance(results, list) and results and isinstance(results[0], dict):
+        content = results[0].get("content")
+    if not isinstance(content, dict):
+        return {"ok": False, "product_id": str(product_id)}
+
+    general = content.get("general") if isinstance(content.get("general"), dict) else {}
+    price_obj = content.get("price") if isinstance(content.get("price"), dict) else {}
+    fulfillment = (
+        content.get("fulfillment") if isinstance(content.get("fulfillment"), dict) else {}
+    )
+    seller = content.get("seller") if isinstance(content.get("seller"), dict) else {}
+    location = content.get("location") if isinstance(content.get("location"), dict) else {}
+
+    pickup = fulfillment.get("pickup")
+    oos = general.get("out_of_stock")
+    if oos is None:
+        oos = fulfillment.get("out_of_stock")
+
+    return {
+        "ok": True,
+        "product_id": str(product_id),
+        "current_price": _num(price_obj.get("price")),
+        "was_price": _num(price_obj.get("price_strikethrough") or price_obj.get("was_price")),
+        "pickup_available": True if pickup is True else False if pickup is False else None,
+        "delivery_available": fulfillment.get("delivery"),
+        "shipping_available": fulfillment.get("shipping"),
+        "out_of_stock": bool(oos) if oos is not None else False,
+        "seller_name": seller.get("name"),
+        "store_id": str(location.get("store_id") or store_id),
+    }
+
+
+def enrich_products_store_pickup(
+    products: List[Dict[str, Any]],
+    store_id: str,
+    postal_code: Optional[str],
+    cfg: CollectorConfig,
+    *,
+    max_enrich: int = 40,
+    workers: int = 6,
+) -> tuple:
+    """Verify pickup at THIS store via walmart_product for unverified markdowns.
+
+    Search fulfillment.pickup is often false even when the store has the item.
+    Product lookups are store-accurate and make lists diverge by ZIP.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _markdown_pct(p: Dict[str, Any]) -> float:
+        cur = _num(p.get("current_price"))
+        was = _num(p.get("was_price") or p.get("list_price"))
+        if not cur or not was or was <= cur:
+            return -1.0
+        return (was - cur) / was * 100.0
+
+    need: List[Dict[str, Any]] = []
+    for p in products:
+        if p.get("pickup_available") is True:
+            continue
+        if _markdown_pct(p) < 10:
+            continue
+        seller = str(p.get("seller_name") or "").lower()
+        if seller and "walmart" not in seller:
+            continue
+        need.append(p)
+
+    need.sort(key=_markdown_pct, reverse=True)
+    need = need[: max(0, int(max_enrich))]
+    if not need:
+        return 0, 0
+
+    updated = 0
+    calls = 0
+
+    def _one(p: Dict[str, Any]) -> Dict[str, Any]:
+        pid = str(p.get("product_id") or "")
+        try:
+            info = fetch_walmart_product(pid, store_id, postal_code, cfg)
+            return {"pid": pid, "info": info, "error": None}
+        except Exception as e:
+            return {"pid": pid, "info": None, "error": f"{type(e).__name__}: {e}"}
+
+    by_id = {str(p.get("product_id")): p for p in products}
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(need)))) as pool:
+        futs = [pool.submit(_one, p) for p in need]
+        for fut in as_completed(futs):
+            calls += 1
+            hit = fut.result()
+            info = hit.get("info") or {}
+            p = by_id.get(str(hit.get("pid")))
+            if not p or not info.get("ok"):
+                # Could not verify → leave unverified (deal_engine will drop).
+                continue
+            pickup = info.get("pickup_available")
+            p["pickup_available"] = pickup
+            p["delivery_available"] = info.get("delivery_available")
+            p["shipping_available"] = info.get("shipping_available")
+            p["out_of_stock"] = bool(info.get("out_of_stock"))
+            if info.get("seller_name"):
+                p["seller_name"] = info.get("seller_name")
+            if info.get("current_price"):
+                p["current_price"] = info.get("current_price")
+            if info.get("was_price"):
+                p["was_price"] = info.get("was_price")
+                p["list_price"] = info.get("was_price")
+            if pickup is True and not p.get("out_of_stock"):
+                p["in_store"] = True
+                p["in_stock"] = True
+                p["availability"] = "In stock · pickup"
+                p["stock_status"] = "In stock"
+            elif pickup is False:
+                p["in_store"] = False
+                p["availability"] = "Ship only (not in-store)"
+                p["stock_status"] = "Ship only"
+            else:
+                p["in_store"] = False
+                p["availability"] = "Store stock unconfirmed"
+                p["stock_status"] = "Unconfirmed"
+            p["collection_source"] = "oxylabs_walmart_product"
+            updated += 1
+
+    return updated, calls
+
+
 def _build_query_queue(queries: Optional[Sequence[str]], cfg: CollectorConfig) -> List[str]:
     """Prefer high-yield DEFAULT_QUERIES unless WALMART_QUERIES is set explicitly."""
     env_queries = os.environ.get("WALMART_QUERIES", "").strip()
@@ -380,7 +541,8 @@ def collect_store_via_oxylabs(
 
     queued = _build_query_queue(queries, cfg)
     pages_deep = max(1, min(4, _env_int("WALMART_PAGES_PER_QUERY", 2)))
-    max_api_calls = max(24, _env_int("WALMART_MAX_API_CALLS", 36))
+    max_api_calls = max(20, _env_int("WALMART_MAX_API_CALLS", 28))
+    max_enrich = max(0, _env_int("WALMART_ENRICH_MAX", 40))
     workers = max(1, min(12, _env_int("WALMART_PARALLEL_WORKERS", 6)))
 
     all_products: List[Dict[str, Any]] = []
@@ -553,6 +715,33 @@ def collect_store_via_oxylabs(
         _apply_hits(_run_batch(wave2))
     elif wave2 and attempts >= max_api_calls:
         notes.append(f"api_budget_stop max_api_calls={max_api_calls}")
+
+    # Wave 3: product-level pickup verify — search flags lie; this makes stores diverge.
+    enrich_updated = 0
+    enrich_calls = 0
+    if all_products and max_enrich > 0:
+        enrich_updated, enrich_calls = enrich_products_store_pickup(
+            all_products,
+            store_id=str(store_id),
+            postal_code=postal_code,
+            cfg=cfg,
+            max_enrich=max_enrich,
+            workers=workers,
+        )
+        attempts += enrich_calls
+        notes.append(
+            f"store_pickup_enrich updated={enrich_updated} checked={enrich_calls} "
+            f"budget={max_enrich}"
+        )
+
+    before = len(all_products)
+    # Only keep items confirmed for pickup at THIS store after enrich.
+    all_products = [
+        p for p in all_products if p.get("pickup_available") is True and not p.get("out_of_stock")
+    ]
+    notes.append(
+        f"pickup_confirmed={len(all_products)} dropped_unconfirmed={before - len(all_products)}"
+    )
 
     elapsed = round(time.time() - t0, 1)
     notes.append(

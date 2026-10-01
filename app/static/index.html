@@ -1056,7 +1056,12 @@
       if (!lastDealBag) return;
       const minPct = Number($("minPct")?.value || 20);
       const { storeId, storeName, mode } = lastDealBag;
-      const deals = (lastDealBag.deals || []).filter((d) => Number(d.discount_pct || 0) >= minPct);
+      const deals = (lastDealBag.deals || []).filter((d) => {
+        if (Number(d.discount_pct || 0) < minPct) return false;
+        // Never show national unconfirmed clones in the UI.
+        if (d.pickup_available !== true) return false;
+        return true;
+      });
       const summary = summarizeDeals(deals);
       summaryEl.hidden = false;
 

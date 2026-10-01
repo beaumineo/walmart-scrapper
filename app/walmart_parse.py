@@ -189,10 +189,7 @@ def extract_fulfillment_flags(node: Dict[str, Any]) -> Dict[str, Optional[bool]]
 
 
 def is_likely_instore_product(item: Dict[str, Any], *, require_signal: bool = False) -> bool:
-    """Keep shelf/pickup / Walmart store-scoped items; drop marketplace junk."""
-    if item.get("pickup_available") is True or item.get("in_store") is True:
-        return True
-
+    """Keep confirmed pickup, or Walmart markdown candidates for store stock enrich."""
     seller = str(item.get("seller_name") or "").strip().lower()
     seller_type = str(item.get("seller_type") or "").strip().upper()
     is_walmart = bool(seller) and (
@@ -203,15 +200,25 @@ def is_likely_instore_product(item: Dict[str, Any], *, require_signal: bool = Fa
     if seller and not is_walmart:
         return False
 
-    source = str(item.get("collection_source") or "")
-    # Oxylabs category search often returns pickup=false even for Walmart.com
-    # store-scoped results — still keep those (DealHawk-scale coverage).
-    if is_walmart and source.startswith("oxylabs"):
+    if item.get("pickup_available") is True or item.get("in_store") is True:
         return True
+
+    source = str(item.get("collection_source") or "")
+    # Search often marks pickup=false incorrectly. Keep Walmart markdowns so the
+    # collector can verify real store pickup via walmart_product enrichment.
+    was = item.get("was_price") or item.get("list_price")
+    cur = item.get("current_price")
+    try:
+        has_markdown = bool(was and cur and float(was) > float(cur))
+    except (TypeError, ValueError):
+        has_markdown = False
+    if is_walmart and has_markdown and source.startswith("oxylabs"):
+        return True
+
     if item.get("pickup_available") is False or item.get("in_store") is False:
         return False
     if source in ("store_search", "store_page_search") or source.startswith("oxylabs"):
-        return True
+        return not require_signal
     if require_signal:
         return False
     return source.startswith("store_bound") or not source

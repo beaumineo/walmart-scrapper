@@ -31,11 +31,13 @@ class DealThresholds:
     prefer_offer_flags: bool = True
     drop_online_only: bool = True
     drop_out_of_stock: bool = False
-    # Soft by default: Oxylabs category clearance often omits pickup=true.
-    # Marketplace clones are blocked by walmart_seller_only instead.
-    require_pickup: bool = False
+    # HARD: only confirmed pickup at THIS store. Soft mode flooded every ZIP
+    # with the same national Walmart.com markdowns (STORE STOCK UNCONFIRMED).
+    require_pickup: bool = True
     prefer_pickup: bool = True
+    # Drop any deep markdown that is not confirmed for store pickup.
     drop_unverified_deep_markdown: bool = True
+    drop_unverified_deep_pct: float = 20.0  # any deal ≥ this without pickup → drop
     # Marketplace 3P sellers repeat the same "clearance" across every ZIP.
     walmart_seller_only: bool = True
     max_deals: int = 2000
@@ -67,9 +69,10 @@ class DealThresholds:
             prefer_offer_flags=_b("DEAL_PREFER_OFFER_FLAGS", True),
             drop_online_only=_b("DEAL_DROP_ONLINE_ONLY", True),
             drop_out_of_stock=_b("DEAL_DROP_OOS", False),
-            require_pickup=_b("DEAL_REQUIRE_PICKUP", False),
+            require_pickup=_b("DEAL_REQUIRE_PICKUP", True),
             prefer_pickup=_b("DEAL_PREFER_PICKUP", True),
             drop_unverified_deep_markdown=_b("DEAL_DROP_UNVERIFIED_DEEP", True),
+            drop_unverified_deep_pct=_f("DEAL_DROP_UNVERIFIED_DEEP_PCT", 20.0),
             walmart_seller_only=_b("DEAL_WALMART_SELLER_ONLY", True),
             max_deals=int(_f("DEAL_MAX_DEALS", 2000)),
             deals_only=_b("DEAL_DEALS_ONLY", True),
@@ -210,12 +213,11 @@ def score_product(
         # Hard floor: only show deals at/above the user's threshold.
         if pct < thresholds.min_discount_pct:
             return None
-        # National marketplace junk often has huge % off but no store pickup flag,
-        # and repeats across every ZIP — drop those so store lists diverge.
+        # National / unconfirmed stock repeats across every ZIP — drop it.
         if (
             thresholds.drop_unverified_deep_markdown
             and p.get("pickup_available") is not True
-            and pct >= 65.0
+            and pct >= float(thresholds.drop_unverified_deep_pct or 20.0)
         ):
             return None
         deal_type, confidence, why = classify_deal(
@@ -246,7 +248,7 @@ def score_product(
             "confidence": confidence,
             "url": p.get("url"),
             "image_url": p.get("image_url"),
-            "in_store": bool(p.get("in_store")) if p.get("in_store") is not None else (p.get("pickup_available") is True),
+            "in_store": p.get("pickup_available") is True,
             "availability": p.get("availability"),
             "in_stock": p.get("in_stock"),
             "out_of_stock": p.get("out_of_stock"),
