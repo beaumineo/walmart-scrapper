@@ -69,16 +69,29 @@ python scripts/run_inventory_scan.py --store-id 5686 --zip 90210 --max-queries 8
 
 ---
 
-## Milestone 3: Full-Store Collection Waves
+## Milestone 3: Full-Store Collection Waves ✅ (implemented)
 
 - Wave A: clearance / rollback / special buy / clearance-{department}
 - Wave B: top departments (electronics, toys, home, grocery, apparel, kitchen, outdoor, …)
 - Wave C: pagination / long-tail SKUs
-- Wave D: re-check known SKUs for price/stock deltas (silent markdowns)
-- Oxylabs `walmart_search` + `walmart_product` (store_id + ZIP) behind bot protection
-- Basic reliability: retries, 401/429 handling, clear errors
+- Wave D: re-check known SKUs for price/stock deltas (`walmart_product`)
+- Oxylabs `walmart_search` + `walmart_product` (store_id + ZIP)
+- Reliability: retries, hard-stop on 401, backoff on 429
+- Coverage: `GET /api/inventory/stores/{id}/coverage` + CLI `--coverage`
 
-**Deliverable:** Sample full-ish scan for 1–2 agreed test stores; SKU coverage report
+**APIs / CLI**
+- `POST /api/inventory/scans` with `wave`: `seed|A|B|C|D|full`, optional `recheck_limit`
+- `GET /api/inventory/stores/{store_id}/coverage`
+
+```bash
+set PYTHONPATH=app
+python scripts/run_inventory_scan.py --store-id 5686 --zip 90210 --wave A --max-queries 12 --sync
+python scripts/run_inventory_scan.py --store-id 5686 --wave D --recheck-limit 20 --sync
+python scripts/run_inventory_scan.py --store-id 5686 --coverage
+```
+
+**Deliverable:** Sample full-ish scan for 1–2 agreed test stores; SKU coverage report  
+**Verified:** `#5686` — Wave A (+32 SKUs → **287**), Wave D product recheck ×3, coverage: 110 markdown / 38 ≥40%
 
 ---
 

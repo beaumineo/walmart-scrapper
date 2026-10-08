@@ -27,7 +27,7 @@ app = FastAPI(
         "`GET /api/deals?zip=&store_id=&min_discount_pct=`.\n\n"
         "Live pulls are store-scoped (Oxylabs). Docs: `/docs`, `docs/API.md`, `docs/HANDOFF.md`."
     ),
-    version="1.1.0",
+    version="1.2.0",
     contact={"name": "Hidden Clearances Walmart module"},
 )
 
@@ -98,9 +98,9 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "1.1.0",
+        "version": "1.2.0",
         "milestone": 5,
-        "phase2_milestone": 1,
+        "phase2_milestone": 3,
         "milestones_complete": [0, 1, 2, 3, 4, 5],
         "proxy_count": len(cfg.proxies),
         "engine": cfg.collect_engine,
@@ -121,7 +121,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.1.0-phase2-m1-inventory-backbone",
+            "build": "1.2.0-phase2-m3-full-store-waves",
         },
     }
 
@@ -442,15 +442,22 @@ def api_scan_detail(scan_id: int):
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-# --- Phase 2 / Milestone 1: inventory scan backbone ---
+# --- Phase 2 / Milestone 3: inventory waves A–D ---
 
 
 class InventoryScanRequest(BaseModel):
     store_id: str = Field(..., min_length=1, max_length=32)
     zip: Optional[str] = Field(None, min_length=3, max_length=10)
-    wave: str = Field("seed", max_length=32)
-    max_queries: Optional[int] = Field(None, ge=1, le=40)
-    pages_per_query: Optional[int] = Field(None, ge=1, le=3)
+    wave: str = Field(
+        "seed",
+        max_length=32,
+        description="seed|A|B|C|D|full — see PHASE2_ROADMAP Milestone 3",
+    )
+    max_queries: Optional[int] = Field(None, ge=1, le=80)
+    pages_per_query: Optional[int] = Field(None, ge=1, le=4)
+    recheck_limit: Optional[int] = Field(
+        None, ge=0, le=200, description="Wave D / full: max SKUs to recheck via product API"
+    )
     background: bool = True
 
 
@@ -458,7 +465,7 @@ class InventoryScanRequest(BaseModel):
     "/api/inventory/scans",
     tags=["phase2"],
     dependencies=[Depends(require_api_key)],
-    summary="Start an inventory seed scan for a store",
+    summary="Start an inventory scan (seed / wave A–D / full)",
 )
 def api_inventory_scan_start(body: InventoryScanRequest, request: Request, response: Response):
     for k, v in enforce_rate_limit(request).items():
@@ -486,6 +493,7 @@ def api_inventory_scan_start(body: InventoryScanRequest, request: Request, respo
             store_meta=store_meta,
             max_queries=body.max_queries,
             pages_per_query=body.pages_per_query,
+            recheck_limit=body.recheck_limit,
             background=body.background,
         )
     except ValueError as e:
@@ -545,3 +553,15 @@ def api_inventory_store_status(store_id: str):
     from inventory_scan import get_store_inventory_status
 
     return get_store_inventory_status(store_id)
+
+
+@app.get(
+    "/api/inventory/stores/{store_id}/coverage",
+    tags=["phase2"],
+    dependencies=[Depends(require_api_key)],
+    summary="SKU coverage report (Milestone 3 deliverable)",
+)
+def api_inventory_coverage(store_id: str):
+    from inventory_scan import get_coverage_report
+
+    return get_coverage_report(store_id)

@@ -101,9 +101,9 @@ Returns tunable thresholds (`DEAL_*` env vars).
 
 Convenience: same as deals, plus `nearby_stores`. If `store_id` omitted, uses nearest store.
 
-## Phase 2 — Inventory scans (Milestone 1)
+## Phase 2 — Inventory scans (Milestone 3)
 
-Seed a store-wide SKU universe into SQLite, then poll status.
+Seed / full-store waves into SQLite, then poll status + coverage.
 
 ### `POST /api/inventory/scans`
 
@@ -111,12 +111,16 @@ Seed a store-wide SKU universe into SQLite, then poll status.
 {
   "store_id": "5686",
   "zip": "90210",
-  "wave": "seed",
+  "wave": "A",
   "max_queries": 20,
   "pages_per_query": 1,
+  "recheck_limit": 40,
   "background": true
 }
 ```
+
+`wave`: `seed` | `A` | `B` | `C` | `D` | `full`  
+- **A** clearance/rollback · **B** departments · **C** deeper pages · **D** product recheck · **full** A+B+C+D  
 
 Returns `{ ok, scan }` with `scan_id`, progress, inventory counts.  
 `409` if a scan is already running for that store.
@@ -133,11 +137,16 @@ List recent inventory scan runs.
 
 Store summary: inventory count, markdown candidates, last successful scan.
 
-CLI pilot:
+### `GET /api/inventory/stores/{store_id}/coverage`
+
+SKU coverage report: counts, markdown ≥40%, sources, recent waves.
+
+CLI:
 
 ```bash
 set PYTHONPATH=app
-python scripts/run_inventory_scan.py --store-id 5686 --zip 90210 --max-queries 8 --sync
+python scripts/run_inventory_scan.py --store-id 5686 --zip 90210 --wave A --max-queries 12 --sync
+python scripts/run_inventory_scan.py --store-id 5686 --coverage
 ```
 
 ## `GET /health`

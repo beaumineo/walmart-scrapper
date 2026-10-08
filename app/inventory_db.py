@@ -177,6 +177,18 @@ def upsert_store(store: Dict[str, Any]) -> None:
         conn.close()
 
 
+def get_store(store_id: str) -> Optional[Dict[str, Any]]:
+    conn = get_inventory_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM inv_stores WHERE store_id = ?",
+            (str(store_id),),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def upsert_inventory_items(
     store_id: str,
     products: List[Dict[str, Any]],
@@ -501,6 +513,17 @@ def inventory_counts(store_id: str) -> Dict[str, Any]:
             """,
             (sid,),
         ).fetchone()
+        by_query = conn.execute(
+            """
+            SELECT COALESCE(query, '(unknown)') AS q, COUNT(*) AS n
+            FROM inv_store_inventory
+            WHERE store_id = ?
+            GROUP BY COALESCE(query, '(unknown)')
+            ORDER BY n DESC
+            LIMIT 30
+            """,
+            (sid,),
+        ).fetchall()
         return {
             "store_id": sid,
             "inventory_count": int(inv["n"] if inv else 0),
@@ -509,6 +532,102 @@ def inventory_counts(store_id: str) -> Dict[str, Any]:
             "last_inventory_update": last["ts"] if last else None,
             "last_successful_scan": dict(last_ok) if last_ok else None,
             "active_scan": dict(active) if active else None,
+            "top_queries": [{"query": r["q"], "count": int(r["n"])} for r in by_query],
+        }
+    finally:
+        conn.close()
+
+
+def list_store_product_ids(
+    store_id: str,
+    *,
+    limit: int = 100,
+    prefer_markdown: bool = True,
+) -> List[str]:
+    """Product IDs for wave D re-check (prefer items with was/list first)."""
+    sid = str(store_id)
+    lim = max(1, min(500, int(limit)))
+    conn = get_inventory_db()
+    try:
+        if prefer_markdown:
+            rows = conn.execute(
+                """
+                SELECT product_id FROM inv_store_inventory
+                WHERE store_id = ?
+                ORDER BY
+                  CASE
+                    WHEN was_price IS NOT NULL AND current_price IS NOT NULL
+                         AND was_price > current_price THEN 0
+                    ELSE 1
+                  END,
+                  updated_at ASC
+                LIMIT ?
+                """,
+                (sid, lim),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT product_id FROM inv_store_inventory
+                WHERE store_id = ?
+                ORDER BY updated_at ASC
+                LIMIT ?
+                """,
+                (sid, lim),
+            ).fetchall()
+        return [str(r["product_id"]) for r in rows if r["product_id"]]
+    finally:
+        conn.close()
+
+
+def coverage_report(store_id: str) -> Dict[str, Any]:
+    """SKU coverage summary for Milestone 3 deliverable."""
+    counts = inventory_counts(store_id)
+    sid = str(store_id)
+    conn = get_inventory_db()
+    try:
+        sources = conn.execute(
+            """
+            SELECT COALESCE(collection_source, '(unknown)') AS src, COUNT(*) AS n
+            FROM inv_store_inventory
+            WHERE store_id = ?
+            GROUP BY COALESCE(collection_source, '(unknown)')
+            ORDER BY n DESC
+            """,
+            (sid,),
+        ).fetchall()
+        deep = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM inv_store_inventory
+            WHERE store_id = ?
+              AND was_price IS NOT NULL AND current_price IS NOT NULL
+              AND was_price > current_price
+              AND ((was_price - current_price) * 100.0 / was_price) >= 40
+            """,
+            (sid,),
+        ).fetchone()
+        scans = conn.execute(
+            """
+            SELECT id, wave, status, inventory_count, api_calls, started_at, finished_at
+            FROM inv_scan_runs
+            WHERE store_id = ?
+            ORDER BY id DESC LIMIT 10
+            """,
+            (sid,),
+        ).fetchall()
+        return {
+            "store_id": sid,
+            "inventory_count": counts["inventory_count"],
+            "markdown_candidates": counts["markdown_candidates"],
+            "markdown_ge40_pct": int(deep["n"] if deep else 0),
+            "pickup_true_count": counts["pickup_true_count"],
+            "last_inventory_update": counts["last_inventory_update"],
+            "last_successful_scan": counts["last_successful_scan"],
+            "by_collection_source": [
+                {"source": r["src"], "count": int(r["n"])} for r in sources
+            ],
+            "top_queries": counts.get("top_queries") or [],
+            "recent_scans": [dict(r) for r in scans],
         }
     finally:
         conn.close()

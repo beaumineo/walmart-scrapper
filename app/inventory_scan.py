@@ -1,8 +1,8 @@
 """
-Phase 2 / Milestone 1 — Scan orchestrator.
+Phase 2 inventory scan orchestrator.
 
-Enqueues idempotent search jobs, runs them with a worker pool + rate limit,
-and upserts results into the inventory DB.
+Milestone 2: seed backbone
+Milestone 3: full-store waves A–D (search + product recheck)
 """
 from __future__ import annotations
 
@@ -10,15 +10,19 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 from inventory_db import (
+    coverage_report,
     create_scan_run,
     enqueue_scan_jobs,
     get_scan_run,
+    get_store,
     inventory_counts,
     list_queued_jobs,
     list_scan_runs,
+    list_store_product_ids,
     scan_job_stats,
     update_scan_job,
     update_scan_run,
@@ -26,15 +30,17 @@ from inventory_db import (
     upsert_store,
 )
 
-# Seed wave — clearance + department coverage (M1).
-# M2 will add deeper pagination / long-tail / re-check waves.
-SEED_QUERIES: Tuple[str, ...] = (
+# --- Wave definitions (Milestone 3) ---
+
+WAVE_A_QUERIES: Tuple[str, ...] = (
     "clearance",
     "rollback",
     "hidden clearance",
     "special buy",
     "markdown",
     "clearance 50%",
+    "clearance 70%",
+    '"clearance"',
     "clearance electronics",
     "clearance toys",
     "clearance home",
@@ -47,9 +53,36 @@ SEED_QUERIES: Tuple[str, ...] = (
     "clearance tools",
     "clearance sports",
     "clearance appliances",
+    "clearance cleaning",
+    "clearance patio",
     "rollback electronics",
     "rollback home",
 )
+
+WAVE_B_QUERIES: Tuple[str, ...] = (
+    "electronics",
+    "toys",
+    "home",
+    "grocery",
+    "apparel",
+    "kitchen",
+    "outdoor",
+    "furniture",
+    "baby",
+    "sports",
+    "appliances",
+    "tools",
+    "beauty",
+    "pets",
+    "automotive",
+    "office",
+    "health",
+    "tv",
+    "headphones",
+    "vacuum",
+)
+
+RECHECK_PREFIX = "__recheck__:"
 
 _lock = threading.Lock()
 _active_threads: Dict[int, threading.Thread] = {}
@@ -75,18 +108,136 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-def build_seed_jobs(
-    pages_per_query: Optional[int] = None,
-    max_queries: Optional[int] = None,
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _jobs_for_queries(
+    queries: List[str],
+    pages: int,
 ) -> List[Dict[str, Any]]:
-    pages = max(1, min(3, pages_per_query if pages_per_query is not None else _env_int("INVENTORY_PAGES_PER_QUERY", 1)))
-    max_q = max(4, max_queries if max_queries is not None else _env_int("INVENTORY_MAX_QUERIES", 20))
-    queries = list(SEED_QUERIES)[:max_q]
     jobs: List[Dict[str, Any]] = []
     for q in queries:
         for page in range(1, pages + 1):
             jobs.append({"query": q, "page": page})
     return jobs
+
+
+def build_wave_jobs(
+    wave: str,
+    store_id: str,
+    *,
+    pages_per_query: Optional[int] = None,
+    max_queries: Optional[int] = None,
+    recheck_limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Build idempotent jobs for wave: seed|A|B|C|D|full."""
+    w = (wave or "seed").strip().lower()
+    pages = max(
+        1,
+        min(
+            4,
+            pages_per_query
+            if pages_per_query is not None
+            else _env_int("INVENTORY_PAGES_PER_QUERY", 1),
+        ),
+    )
+    max_q = max(
+        1,
+        max_queries
+        if max_queries is not None
+        else _env_int("INVENTORY_MAX_QUERIES", 24),
+    )
+    recheck_n = max(
+        0,
+        recheck_limit
+        if recheck_limit is not None
+        else _env_int("INVENTORY_RECHECK_MAX", 40),
+    )
+
+    jobs: List[Dict[str, Any]] = []
+
+    if w in ("seed", "a", "wave_a", "wave-a"):
+        # Seed / Wave A: clearance-heavy (seed defaults to 1 page unless pages set)
+        seed_pages = 1 if (w == "seed" and pages_per_query is None) else pages
+        jobs.extend(_jobs_for_queries(list(WAVE_A_QUERIES)[:max_q], seed_pages))
+
+    elif w in ("b", "wave_b", "wave-b"):
+        q = list(WAVE_B_QUERIES)[:max_q]
+        jobs.extend(_jobs_for_queries(q, pages))
+
+    elif w in ("c", "wave_c", "wave-c"):
+        # Pagination / long-tail: deeper pages on A+B
+        combo = list(dict.fromkeys(list(WAVE_A_QUERIES) + list(WAVE_B_QUERIES)))[:max_q]
+        deep_pages = max(pages, 2)
+        jobs.extend(_jobs_for_queries(combo, deep_pages))
+
+    elif w in ("d", "wave_d", "wave-d", "recheck"):
+        pids = list_store_product_ids(store_id, limit=recheck_n, prefer_markdown=True)
+        for pid in pids:
+            jobs.append({"query": f"{RECHECK_PREFIX}{pid}", "page": 1})
+
+    elif w in ("full", "abcd", "all"):
+        # A + B + extra pages (C) + D recheck, with budget caps
+        a_cap = max(8, max_q // 2)
+        b_cap = max(6, max_q - a_cap)
+        jobs.extend(_jobs_for_queries(list(WAVE_A_QUERIES)[:a_cap], max(1, pages)))
+        jobs.extend(_jobs_for_queries(list(WAVE_B_QUERIES)[:b_cap], max(1, pages)))
+        # C: page 2+ for top clearance queries
+        for q in list(WAVE_A_QUERIES)[: min(8, a_cap)]:
+            for page in range(2, max(2, pages) + 1):
+                jobs.append({"query": q, "page": page})
+        pids = list_store_product_ids(store_id, limit=recheck_n, prefer_markdown=True)
+        for pid in pids:
+            jobs.append({"query": f"{RECHECK_PREFIX}{pid}", "page": 1})
+    else:
+        raise ValueError(
+            f"Unknown wave={wave!r}. Use seed, A, B, C, D, or full."
+        )
+
+    # De-dupe while preserving order
+    seen = set()
+    out: List[Dict[str, Any]] = []
+    for job in jobs:
+        key = (str(job.get("query") or ""), int(job.get("page") or 1))
+        if key in seen or not key[0]:
+            continue
+        seen.add(key)
+        out.append({"query": key[0], "page": key[1]})
+    return out
+
+
+# Back-compat alias
+def build_seed_jobs(
+    pages_per_query: Optional[int] = None,
+    max_queries: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    return build_wave_jobs(
+        "seed",
+        store_id="_",
+        pages_per_query=pages_per_query or 1,
+        max_queries=max_queries,
+        recheck_limit=0,
+    )
+
+
+def _fetch_with_retries(do_request, *, retries: int = 2, label: str = "oxylabs"):
+    last_err: Optional[Exception] = None
+    for attempt in range(retries + 1):
+        try:
+            return do_request()
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            auth = "auth failed" in msg or "401" in msg
+            rate = "rate limited" in msg or "429" in msg
+            if auth:
+                raise
+            if attempt >= retries:
+                break
+            sleep_s = (1.5 * (attempt + 1)) if rate else (0.8 * (attempt + 1))
+            time.sleep(sleep_s)
+    raise RuntimeError(f"{label} failed after retries: {last_err}")
 
 
 def _fetch_inventory_page(
@@ -95,13 +246,9 @@ def _fetch_inventory_page(
     postal_code: Optional[str],
     page: int,
 ) -> Dict[str, Any]:
-    """Search page for inventory seed — keep all mapped products (SKU universe)."""
+    """Search page for inventory — keep all mapped products (SKU universe)."""
     from config import get_collector_config
-    from oxylabs_collector import (
-        _extract_results,
-        _map_item,
-        oxylabs_enabled,
-    )
+    from oxylabs_collector import _extract_results, _map_item, oxylabs_enabled
 
     cfg = get_collector_config()
     if not oxylabs_enabled(cfg):
@@ -123,28 +270,30 @@ def _fetch_inventory_page(
         payload["delivery_zip"] = postal
 
     timeout = max(45, min(90, int(cfg.timeout_sec) + 35))
-    resp = requests.post(
-        "https://realtime.oxylabs.io/v1/queries",
-        auth=(cfg.oxylabs_username, cfg.oxylabs_password),
-        json=payload,
-        timeout=timeout,
-    )
-    if resp.status_code == 401:
-        raise RuntimeError("Oxylabs auth failed (check OXYLABS_USERNAME/PASSWORD)")
-    if resp.status_code == 429:
-        raise RuntimeError("Oxylabs rate limited")
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Oxylabs http={resp.status_code}: {resp.text[:240]}")
 
+    def _once():
+        resp = requests.post(
+            "https://realtime.oxylabs.io/v1/queries",
+            auth=(cfg.oxylabs_username, cfg.oxylabs_password),
+            json=payload,
+            timeout=timeout,
+        )
+        if resp.status_code == 401:
+            raise RuntimeError("Oxylabs auth failed (check OXYLABS_USERNAME/PASSWORD)")
+        if resp.status_code == 429:
+            raise RuntimeError("Oxylabs rate limited")
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Oxylabs http={resp.status_code}: {resp.text[:240]}")
+        return resp
+
+    resp = _fetch_with_retries(_once, retries=_env_int("INVENTORY_FETCH_RETRIES", 2))
     data = resp.json() if resp.content else {}
     rows, location = _extract_results(data if isinstance(data, dict) else {})
     products: List[Dict[str, Any]] = []
     for raw in rows[: max(1, int(cfg.max_per_query))]:
         mapped = _map_item(raw, query=query, store_id=str(store_id))
-        if not mapped:
-            continue
-        # Inventory seed keeps Walmart + unknown sellers; drop clear 3P later in M3.
-        products.append(mapped)
+        if mapped:
+            products.append(mapped)
 
     return {
         "ok": True,
@@ -152,6 +301,67 @@ def _fetch_inventory_page(
         "raw_count": len(rows),
         "location": location,
     }
+
+
+def _fetch_product_recheck(
+    product_id: str,
+    store_id: str,
+    postal_code: Optional[str],
+) -> Dict[str, Any]:
+    """Wave D: walmart_product refresh for price/stock deltas."""
+    from config import get_collector_config
+    from oxylabs_collector import fetch_walmart_product, oxylabs_enabled
+
+    cfg = get_collector_config()
+    if not oxylabs_enabled(cfg):
+        raise RuntimeError("Oxylabs not configured")
+
+    def _once():
+        info = fetch_walmart_product(product_id, store_id, postal_code, cfg)
+        if not info.get("ok"):
+            raise RuntimeError(f"product lookup empty for {product_id}")
+        return info
+
+    info = _fetch_with_retries(
+        _once,
+        retries=_env_int("INVENTORY_FETCH_RETRIES", 2),
+        label="oxylabs_product",
+    )
+    pickup = info.get("pickup_available")
+    oos = bool(info.get("out_of_stock"))
+    product = {
+        "product_id": str(product_id),
+        "title": str(product_id),
+        "current_price": info.get("current_price"),
+        "list_price": info.get("was_price"),
+        "was_price": info.get("was_price"),
+        "pickup_available": pickup,
+        "out_of_stock": oos,
+        "in_store": True if pickup is True else False if pickup is False else None,
+        "seller_name": info.get("seller_name"),
+        "availability": (
+            "Out of stock"
+            if oos
+            else "In stock · pickup"
+            if pickup is True
+            else "Ship only (not in-store)"
+            if pickup is False
+            else "Store stock unconfirmed"
+        ),
+        "stock_status": (
+            "Out of stock"
+            if oos
+            else "In stock"
+            if pickup is True
+            else "Ship only"
+            if pickup is False
+            else "Unconfirmed"
+        ),
+        "query": "wave_d_recheck",
+        "collection_source": "oxylabs_walmart_product",
+        "store_id": str(store_id),
+    }
+    return {"ok": True, "products": [product], "raw_count": 1}
 
 
 def start_inventory_scan(
@@ -162,6 +372,7 @@ def start_inventory_scan(
     store_meta: Optional[Dict[str, Any]] = None,
     pages_per_query: Optional[int] = None,
     max_queries: Optional[int] = None,
+    recheck_limit: Optional[int] = None,
     background: bool = True,
 ) -> Dict[str, Any]:
     """Create a scan run + jobs and optionally start a background worker."""
@@ -169,7 +380,6 @@ def start_inventory_scan(
     if not sid:
         raise ValueError("store_id required")
 
-    # One active scan per store (idempotent guard).
     active = inventory_counts(sid).get("active_scan")
     if active:
         return {
@@ -187,10 +397,30 @@ def start_inventory_scan(
     else:
         upsert_store({"store_id": sid, "zip": zip_code})
 
-    jobs = build_seed_jobs(pages_per_query=pages_per_query, max_queries=max_queries)
+    if not zip_code:
+        existing = get_store(sid)
+        if existing and existing.get("zip"):
+            zip_code = str(existing["zip"])
+
+    jobs = build_wave_jobs(
+        wave,
+        sid,
+        pages_per_query=pages_per_query,
+        max_queries=max_queries,
+        recheck_limit=recheck_limit,
+    )
+    if not jobs:
+        raise ValueError(
+            f"No jobs for wave={wave!r}. For wave D, seed the store first (wave A/full)."
+        )
+
     scan_id = create_scan_run(sid, zip_code, wave=wave, jobs_total=len(jobs))
     inserted = enqueue_scan_jobs(scan_id, sid, jobs)
-    update_scan_run(scan_id, jobs_total=inserted, notes=f"enqueued={inserted} wave={wave}")
+    update_scan_run(
+        scan_id,
+        jobs_total=inserted,
+        notes=f"enqueued={inserted} wave={wave}",
+    )
 
     if background:
         t = threading.Thread(
@@ -220,13 +450,10 @@ def run_inventory_scan(scan_id: int, postal_code: Optional[str] = None) -> Dict[
     workers = max(1, min(8, _env_int("INVENTORY_PARALLEL_WORKERS", 3)))
     delay = max(0.0, _env_float("INVENTORY_JOB_DELAY_SEC", 0.4))
 
-    from datetime import datetime, timezone
-
-    now_iso = datetime.now(timezone.utc).isoformat()
     update_scan_run(
         scan_id,
         status="running",
-        started_at=run.get("started_at") or now_iso,
+        started_at=run.get("started_at") or _now(),
     )
 
     jobs = list_queued_jobs(scan_id)
@@ -239,16 +466,17 @@ def run_inventory_scan(scan_id: int, postal_code: Optional[str] = None) -> Dict[
         jid = int(job["id"])
         q = str(job["query"])
         page = int(job["page"] or 1)
-        job_now = datetime.now(timezone.utc).isoformat()
-        update_scan_job(
-            jid,
-            status="running",
-            started_at=job_now,
-        )
+        update_scan_job(jid, status="running", started_at=_now())
         if delay:
             time.sleep(delay)
         try:
-            result = _fetch_inventory_page(q, sid, zip_code, page)
+            if q.startswith(RECHECK_PREFIX):
+                pid = q[len(RECHECK_PREFIX) :]
+                result = _fetch_product_recheck(pid, sid, zip_code)
+                label = f"recheck:{pid}"
+            else:
+                result = _fetch_inventory_page(q, sid, zip_code, page)
+                label = f"{q} p={page}"
             products = result.get("products") or []
             upserted = upsert_inventory_items(sid, products)
             update_scan_job(
@@ -256,35 +484,32 @@ def run_inventory_scan(scan_id: int, postal_code: Optional[str] = None) -> Dict[
                 status="completed",
                 products_found=len(products),
                 products_upserted=upserted,
-                finished_at=datetime.now(timezone.utc).isoformat(),
+                finished_at=_now(),
             )
             return {
                 "ok": True,
                 "job_id": jid,
-                "query": q,
-                "page": page,
+                "label": label,
                 "found": len(products),
                 "upserted": upserted,
-                "raw": result.get("raw_count"),
             }
         except Exception as e:
             update_scan_job(
                 jid,
                 status="failed",
                 error=f"{type(e).__name__}: {e}"[:500],
-                finished_at=datetime.now(timezone.utc).isoformat(),
+                finished_at=_now(),
             )
             return {
                 "ok": False,
                 "job_id": jid,
-                "query": q,
-                "page": page,
+                "label": q,
                 "error": f"{type(e).__name__}: {e}",
             }
 
     auth_fail = False
     try:
-        with ThreadPoolExecutor(max_workers=min(workers, max(1, len(jobs)))) as pool:
+        with ThreadPoolExecutor(max_workers=min(workers, max(1, len(jobs) or 1))) as pool:
             futs = [pool.submit(_one, job) for job in jobs]
             for fut in as_completed(futs):
                 hit = fut.result()
@@ -292,13 +517,12 @@ def run_inventory_scan(scan_id: int, postal_code: Optional[str] = None) -> Dict[
                 if hit.get("ok"):
                     done += 1
                     notes.append(
-                        f"ok q={hit.get('query')} p={hit.get('page')} "
-                        f"n={hit.get('found')} up={hit.get('upserted')}"
+                        f"ok {hit.get('label')} n={hit.get('found')} up={hit.get('upserted')}"
                     )
                 else:
                     failed += 1
                     err = str(hit.get("error") or "")
-                    notes.append(f"fail q={hit.get('query')}: {err[:120]}")
+                    notes.append(f"fail {hit.get('label')}: {err[:120]}")
                     if "auth failed" in err.lower() or "401" in err:
                         auth_fail = True
                         break
@@ -324,7 +548,7 @@ def run_inventory_scan(scan_id: int, postal_code: Optional[str] = None) -> Dict[
             api_calls=api_calls,
             inventory_count=counts["inventory_count"],
             sku_count=counts["inventory_count"],
-            finished_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=_now(),
             error="oxylabs_auth_failed" if auth_fail else None,
             notes="; ".join(notes[-20:]),
         )
@@ -333,7 +557,7 @@ def run_inventory_scan(scan_id: int, postal_code: Optional[str] = None) -> Dict[
             scan_id,
             status="failed",
             error=f"{type(e).__name__}: {e}"[:500],
-            finished_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=_now(),
         )
     finally:
         with _lock:
@@ -410,3 +634,7 @@ def list_inventory_scans(
 
 def get_store_inventory_status(store_id: str) -> Dict[str, Any]:
     return inventory_counts(str(store_id))
+
+
+def get_coverage_report(store_id: str) -> Dict[str, Any]:
+    return coverage_report(str(store_id))
