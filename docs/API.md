@@ -101,9 +101,48 @@ Returns tunable thresholds (`DEAL_*` env vars).
 
 Convenience: same as deals, plus `nearby_stores`. If `store_id` omitted, uses nearest store.
 
+## Phase 2 — Inventory scans (Milestone 1)
+
+Seed a store-wide SKU universe into SQLite, then poll status.
+
+### `POST /api/inventory/scans`
+
+```json
+{
+  "store_id": "5686",
+  "zip": "90210",
+  "wave": "seed",
+  "max_queries": 20,
+  "pages_per_query": 1,
+  "background": true
+}
+```
+
+Returns `{ ok, scan }` with `scan_id`, progress, inventory counts.  
+`409` if a scan is already running for that store.
+
+### `GET /api/inventory/scans/{scan_id}`
+
+Progress: `status`, `progress_pct`, `jobs_done` / `jobs_total`, `inventory_count`, `sku_count`.
+
+### `GET /api/inventory/scans?store_id=5686`
+
+List recent inventory scan runs.
+
+### `GET /api/inventory/stores/{store_id}`
+
+Store summary: inventory count, markdown candidates, last successful scan.
+
+CLI pilot:
+
+```bash
+set PYTHONPATH=app
+python scripts/run_inventory_scan.py --store-id 5686 --zip 90210 --max-queries 8 --sync
+```
+
 ## `GET /health`
 
-Readiness: `live_ready`, `backends.oxylabs`, `milestone`, `auth_required`.
+Readiness: `live_ready`, `backends.oxylabs`, `milestone`, `phase2_milestone`, `auth_required`.
 
 ## Errors
 

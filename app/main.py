@@ -27,7 +27,7 @@ app = FastAPI(
         "`GET /api/deals?zip=&store_id=&min_discount_pct=`.\n\n"
         "Live pulls are store-scoped (Oxylabs). Docs: `/docs`, `docs/API.md`, `docs/HANDOFF.md`."
     ),
-    version="1.0.15",
+    version="1.1.0",
     contact={"name": "Hidden Clearances Walmart module"},
 )
 
@@ -98,8 +98,9 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "1.0.15",
+        "version": "1.1.0",
         "milestone": 5,
+        "phase2_milestone": 1,
         "milestones_complete": [0, 1, 2, 3, 4, 5],
         "proxy_count": len(cfg.proxies),
         "engine": cfg.collect_engine,
@@ -120,7 +121,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.0.15-preserve-pickup-fields",
+            "build": "1.1.0-phase2-m1-inventory-backbone",
         },
     }
 
@@ -439,3 +440,108 @@ def api_scan_detail(scan_id: int):
         return get_scan_deals(scan_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+# --- Phase 2 / Milestone 1: inventory scan backbone ---
+
+
+class InventoryScanRequest(BaseModel):
+    store_id: str = Field(..., min_length=1, max_length=32)
+    zip: Optional[str] = Field(None, min_length=3, max_length=10)
+    wave: str = Field("seed", max_length=32)
+    max_queries: Optional[int] = Field(None, ge=1, le=40)
+    pages_per_query: Optional[int] = Field(None, ge=1, le=3)
+    background: bool = True
+
+
+@app.post(
+    "/api/inventory/scans",
+    tags=["phase2"],
+    dependencies=[Depends(require_api_key)],
+    summary="Start an inventory seed scan for a store",
+)
+def api_inventory_scan_start(body: InventoryScanRequest, request: Request, response: Response):
+    for k, v in enforce_rate_limit(request).items():
+        response.headers[k] = v
+    from inventory_scan import start_inventory_scan
+    from walmart_core import find_stores_near_zip
+
+    store_meta = None
+    zip_code = body.zip
+    if zip_code:
+        try:
+            _loc, stores = find_stores_near_zip(zip_code, radius_miles=50, limit=50)
+            match = next((s for s in stores if str(s.store_id) == str(body.store_id)), None)
+            if match:
+                store_meta = match.to_dict() if hasattr(match, "to_dict") else dict(match.__dict__)
+                zip_code = store_meta.get("zip") or zip_code
+        except Exception:
+            store_meta = {"store_id": body.store_id, "zip": zip_code}
+
+    try:
+        result = start_inventory_scan(
+            store_id=body.store_id,
+            zip_code=zip_code,
+            wave=body.wave or "seed",
+            store_meta=store_meta,
+            max_queries=body.max_queries,
+            pages_per_query=body.pages_per_query,
+            background=body.background,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Inventory scan failed: {e}") from e
+
+    if not result.get("ok") and result.get("error") == "scan_already_running":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "scan_already_running",
+                "scan": result.get("scan"),
+            },
+        )
+    return result
+
+
+@app.get(
+    "/api/inventory/scans",
+    tags=["phase2"],
+    dependencies=[Depends(require_api_key)],
+    summary="List inventory scan runs",
+)
+def api_inventory_scans(
+    store_id: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+):
+    from inventory_scan import list_inventory_scans
+
+    scans = list_inventory_scans(store_id=store_id, limit=limit)
+    return {"count": len(scans), "scans": scans}
+
+
+@app.get(
+    "/api/inventory/scans/{scan_id}",
+    tags=["phase2"],
+    dependencies=[Depends(require_api_key)],
+    summary="Inventory scan status (progress, SKU count, last update)",
+)
+def api_inventory_scan_status(scan_id: int):
+    from inventory_scan import get_scan_status
+
+    try:
+        return get_scan_status(scan_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get(
+    "/api/inventory/stores/{store_id}",
+    tags=["phase2"],
+    dependencies=[Depends(require_api_key)],
+    summary="Store inventory summary (SKU count, last successful scan)",
+)
+def api_inventory_store_status(store_id: str):
+    from inventory_scan import get_store_inventory_status
+
+    return get_store_inventory_status(store_id)
