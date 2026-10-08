@@ -390,9 +390,17 @@ def fetch_walmart_product(
     if oos is None:
         oos = fulfillment.get("out_of_stock")
 
+    url = general.get("url") or ""
+    if url and isinstance(url, str) and url.startswith("/"):
+        url = "https://www.walmart.com" + url
+
     return {
         "ok": True,
         "product_id": str(product_id),
+        "title": general.get("title"),
+        "brand": general.get("brand"),
+        "url": url or None,
+        "image_url": general.get("main_image") or general.get("image"),
         "current_price": _num(price_obj.get("price")),
         "was_price": _num(price_obj.get("price_strikethrough") or price_obj.get("was_price")),
         "pickup_available": True if pickup is True else False if pickup is False else None,
@@ -401,6 +409,69 @@ def fetch_walmart_product(
         "out_of_stock": bool(oos) if oos is not None else False,
         "seller_name": seller.get("name"),
         "store_id": str(location.get("store_id") or store_id),
+    }
+
+
+def check_store_stock(
+    product_id: str,
+    store_id: str,
+    postal_code: Optional[str] = None,
+    cfg: Optional[CollectorConfig] = None,
+) -> Dict[str, Any]:
+    """
+    Single-SKU store stock check (client ask: 'enter a SKU, show stock').
+    Returns normalized stock + price for one product at one store.
+    """
+    info = fetch_walmart_product(product_id, store_id, postal_code, cfg)
+    if not info.get("ok"):
+        return {
+            "ok": False,
+            "product_id": str(product_id),
+            "store_id": str(store_id),
+            "error": "product_not_found_or_unavailable",
+        }
+
+    pickup = info.get("pickup_available")
+    oos = bool(info.get("out_of_stock"))
+    cur = info.get("current_price")
+    was = info.get("was_price")
+    discount_pct = None
+    if cur and was and float(was) > float(cur):
+        discount_pct = round((float(was) - float(cur)) / float(was) * 100, 1)
+
+    if oos:
+        stock_status = "Out of stock"
+        in_store = False
+    elif pickup is True:
+        stock_status = "In stock · pickup"
+        in_store = True
+    elif pickup is False:
+        stock_status = "Ship only (not in-store)"
+        in_store = False
+    else:
+        stock_status = "Store stock unconfirmed"
+        in_store = None
+
+    seller_name = info.get("seller_name")
+    return {
+        "ok": True,
+        "product_id": str(product_id),
+        "store_id": str(info.get("store_id") or store_id),
+        "title": info.get("title"),
+        "brand": info.get("brand"),
+        "url": info.get("url"),
+        "image_url": info.get("image_url"),
+        "current_price": cur,
+        "was_price": was,
+        "discount_pct": discount_pct,
+        "pickup_available": pickup,
+        "delivery_available": info.get("delivery_available"),
+        "shipping_available": info.get("shipping_available"),
+        "out_of_stock": oos,
+        "in_store": in_store,
+        "stock_status": stock_status,
+        "seller_name": seller_name,
+        "walmart_seller": bool(seller_name) and "walmart" in str(seller_name).lower(),
     }
 
 

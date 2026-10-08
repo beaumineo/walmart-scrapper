@@ -153,6 +153,31 @@ DISCORD_WEBHOOK_URL=...   # Railway secret — never commit
 
 ---
 
+## Post-M6: DealHawk-parity recall (catalog crawl + coverage + stock)
+
+Addresses client feedback ("they find 300, we find 10"):
+
+- **Full-catalog crawl** — `wave=catalog` (alias `E`) / `mega`: broad taxonomy matrix × deep pagination.
+  Pilot `#5686`: **287 → 4,696 SKUs** from a bounded 130-job crawl (full depth ≈ 650 jobs → more).
+- **Coverage mode** — `GET /api/deals?...&coverage=1`: every in-store markdown with a stock badge
+  (DealHawk-style volume). Pilot: **29 → ~1,500 deals**. `coverage=0` keeps the clean pickup-only list.
+- **SKU stock check** — `GET /api/stock?sku=&store_id=&zip=`: pickup / OOS / price / was / seller for one item.
+
+Tunables: `INVENTORY_CATALOG_PAGES`, `INVENTORY_CATALOG_MAX_QUERIES`, `INVENTORY_MAX_JOBS` (cost guard).
+
+> Honest note: broad keyword crawl hugely increases recall but is not literal "every item" — a few
+> specific SKUs can still sit beyond crawled pages. True 100% enumeration needs category-node/browse
+> traversal (next step) and scales Oxylabs cost with store count × refresh rate.
+
+```bash
+# Deep crawl one store, then serve high-volume deals
+python scripts/run_inventory_scan.py --store-id 5686 --zip 90210 --wave catalog --sync
+curl "$BASE/api/deals?zip=90210&store_id=5686&min_discount_pct=20&mode=inventory&coverage=1"
+curl "$BASE/api/stock?sku=20585870370&store_id=5686&zip=90210"
+```
+
+---
+
 ## One-liner
 
 > Phase 2 = always-on full-store scanner for selected Walmarts (catalog waves + pickup-accurate prices) so we can surface DealHawk-style deep clearance — not just search hits. Oxylabs usage is monthly pass-through based on stores × refresh speed.

@@ -27,7 +27,7 @@ app = FastAPI(
         "`GET /api/deals?zip=&store_id=&min_discount_pct=`.\n\n"
         "Live pulls are store-scoped (Oxylabs). Docs: `/docs`, `docs/API.md`, `docs/HANDOFF.md`."
     ),
-    version="1.5.0",
+    version="1.6.0",
     contact={"name": "Hidden Clearances Walmart module"},
 )
 
@@ -128,7 +128,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.5.0-phase2-m6-always-on",
+            "build": "1.6.0-phase2-catalog-crawl-coverage-stock",
         },
     }
 
@@ -313,6 +313,56 @@ def api_item(item_id: str):
     return result
 
 
+@app.get(
+    "/api/stock",
+    tags=["collector"],
+    dependencies=[Depends(require_api_key)],
+    summary="Check a single SKU's stock/price at a specific store",
+)
+def api_stock(
+    request: Request,
+    response: Response,
+    sku: str = Query(..., min_length=3, max_length=40, description="Walmart product_id / item id"),
+    store_id: str = Query(..., description="Store to check stock at"),
+    zip: Optional[str] = Query(None, min_length=3, max_length=10, description="Delivery ZIP for store scoping"),
+):
+    """Store-accurate stock check: pickup, out-of-stock, price, was-price, seller."""
+    for k, v in enforce_rate_limit(request).items():
+        response.headers[k] = v
+
+    zip_code = zip
+    if not zip_code:
+        try:
+            from inventory_db import get_store
+
+            st = get_store(store_id)
+            zip_code = (st or {}).get("zip")
+        except Exception:
+            zip_code = None
+
+    try:
+        from oxylabs_collector import check_store_stock
+
+        result = check_store_stock(sku, store_id, zip_code)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Stock check failed: {e}") from e
+
+    # Record price history snapshot (best effort)
+    if result.get("ok"):
+        try:
+            from price_history import save_price_history
+
+            save_price_history(store_id=store_id, products=[result])
+        except Exception:
+            pass
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No stock data for SKU {sku} at store {store_id}",
+        )
+    return result
+
+
 @app.get("/api/history/{product_id}", tags=["collector"], dependencies=[Depends(require_api_key)])
 def api_history(
     product_id: str,
@@ -370,6 +420,12 @@ def api_deals(
         pattern="^(auto|live|inventory)$",
         description="auto=inventory DB when scanned, else live; inventory=DB only; live=Oxylabs pull",
     ),
+    coverage: int = Query(
+        0,
+        ge=0,
+        le=1,
+        description="1 = DealHawk-style volume (all markdowns + stock badges); 0 = pickup-confirmed only",
+    ),
     refresh: int = Query(
         0,
         ge=0,
@@ -401,6 +457,7 @@ def api_deals(
                     min_discount_pct=min_discount_pct,
                     refresh=bool(refresh),
                     radius_miles=radius_miles,
+                    coverage=bool(coverage),
                 )
             if mode == "inventory":
                 raise HTTPException(
@@ -627,10 +684,13 @@ def api_inventory_deals(
     store_id: str,
     min_discount_pct: float = Query(20, ge=0, le=95),
     limit: int = Query(200, ge=1, le=2000),
+    coverage: int = Query(0, ge=0, le=1, description="1 = all markdowns + stock badges"),
 ):
     from inventory_deals import deals_from_inventory
 
-    result = deals_from_inventory(store_id, min_discount_pct=min_discount_pct)
+    result = deals_from_inventory(
+        store_id, min_discount_pct=min_discount_pct, coverage=bool(coverage)
+    )
     deals = result.get("deals") or []
     result["deals"] = deals[:limit]
     result["returned"] = len(result["deals"])

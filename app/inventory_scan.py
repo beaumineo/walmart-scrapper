@@ -82,6 +82,40 @@ WAVE_B_QUERIES: Tuple[str, ...] = (
     "vacuum",
 )
 
+# --- Wave E: full-catalog crawl (Milestone 7 / DealHawk-parity recall) ---
+# Broad taxonomy matrix. Combined with deep pagination this enumerates far more
+# of a store's catalog than the clearance-only keyword waves. Tunable breadth via
+# INVENTORY_CATALOG_MAX_QUERIES and depth via INVENTORY_CATALOG_PAGES.
+CATALOG_QUERIES: Tuple[str, ...] = (
+    # Core departments
+    "electronics", "tv", "laptop", "computer", "tablet", "headphones",
+    "video games", "cell phones", "cameras", "smart home", "printer",
+    "home", "furniture", "mattress", "bedding", "bath", "kitchen",
+    "cookware", "small appliances", "appliances", "vacuum", "cleaning",
+    "storage organization", "home decor", "lighting", "rugs", "curtains",
+    "toys", "action figures", "dolls", "board games", "building sets",
+    "outdoor toys", "ride on toys", "learning toys",
+    "baby", "diapers", "baby food", "strollers", "car seats", "baby gear",
+    "clothing", "mens clothing", "womens clothing", "kids clothing",
+    "shoes", "mens shoes", "womens shoes", "kids shoes", "accessories",
+    "jewelry", "watches", "handbags",
+    "grocery", "snacks", "beverages", "coffee", "candy", "pantry",
+    "frozen food", "breakfast", "canned goods",
+    "beauty", "makeup", "skincare", "hair care", "fragrance",
+    "personal care", "oral care", "shaving",
+    "health", "vitamins", "supplements", "first aid", "wellness",
+    "pets", "dog food", "cat food", "pet supplies", "aquarium",
+    "automotive", "tires", "car care", "car electronics", "tools auto",
+    "sports", "fitness", "exercise equipment", "camping", "fishing",
+    "hunting", "bikes", "scooters", "outdoor recreation",
+    "patio garden", "patio furniture", "grills", "lawn care", "plants",
+    "tools", "power tools", "hand tools", "hardware", "paint",
+    "office", "office supplies", "school supplies", "arts crafts",
+    "party supplies", "books", "music", "movies",
+    "seasonal", "holiday", "christmas", "halloween", "home improvement",
+    "luggage", "bags", "home textiles",
+)
+
 RECHECK_PREFIX = "__recheck__:"
 
 _lock = threading.Lock()
@@ -177,6 +211,22 @@ def build_wave_jobs(
         for pid in pids:
             jobs.append({"query": f"{RECHECK_PREFIX}{pid}", "page": 1})
 
+    elif w in ("e", "wave_e", "wave-e", "catalog", "crawl", "deep"):
+        # Full-catalog crawl: broad taxonomy × deep pagination (max recall).
+        cat_max = max(
+            max_q,
+            _env_int("INVENTORY_CATALOG_MAX_QUERIES", len(CATALOG_QUERIES)),
+        )
+        cat_pages = max(
+            pages,
+            _env_int("INVENTORY_CATALOG_PAGES", 5),
+        )
+        cat_pages = min(cat_pages, 25)  # Oxylabs practical page ceiling
+        queries = list(CATALOG_QUERIES)[:cat_max]
+        jobs.extend(_jobs_for_queries(queries, cat_pages))
+        # Fold in clearance terms so deep markdowns aren't missed
+        jobs.extend(_jobs_for_queries(list(WAVE_A_QUERIES), max(2, pages)))
+
     elif w in ("full", "abcd", "all"):
         # A + B + extra pages (C) + D recheck, with budget caps
         a_cap = max(8, max_q // 2)
@@ -190,9 +240,19 @@ def build_wave_jobs(
         pids = list_store_product_ids(store_id, limit=recheck_n, prefer_markdown=True)
         for pid in pids:
             jobs.append({"query": f"{RECHECK_PREFIX}{pid}", "page": 1})
+
+    elif w in ("mega", "everything", "catalog_full", "deep_full"):
+        # Catalog crawl + clearance waves + recheck — the widest sweep.
+        cat_pages = min(25, max(pages, _env_int("INVENTORY_CATALOG_PAGES", 6)))
+        jobs.extend(_jobs_for_queries(list(CATALOG_QUERIES), cat_pages))
+        jobs.extend(_jobs_for_queries(list(WAVE_A_QUERIES), max(2, pages)))
+        jobs.extend(_jobs_for_queries(list(WAVE_B_QUERIES), max(1, pages)))
+        pids = list_store_product_ids(store_id, limit=recheck_n, prefer_markdown=True)
+        for pid in pids:
+            jobs.append({"query": f"{RECHECK_PREFIX}{pid}", "page": 1})
     else:
         raise ValueError(
-            f"Unknown wave={wave!r}. Use seed, A, B, C, D, or full."
+            f"Unknown wave={wave!r}. Use seed, A, B, C, D, E/catalog, full, or mega."
         )
 
     # De-dupe while preserving order
@@ -204,6 +264,10 @@ def build_wave_jobs(
             continue
         seen.add(key)
         out.append({"query": key[0], "page": key[1]})
+    # Safety cap so deep crawls stay cost-bounded (tunable per Oxylabs budget).
+    job_cap = max(1, _env_int("INVENTORY_MAX_JOBS", 1200))
+    if len(out) > job_cap:
+        out = out[:job_cap]
     return out
 
 

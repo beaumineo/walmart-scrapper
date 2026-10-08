@@ -71,7 +71,26 @@ See `docs/examples/stores_90210.json`.
 | `min_discount_pct` | float | 20 | Hard floor on discount % |
 | `radius_miles` | float | 50 | Store must be near ZIP |
 | `mode` | string | `auto` | `auto` · `inventory` · `live` |
+| `coverage` | int | 0 | `1` = DealHawk-style volume (all markdowns + stock badges); `0` = pickup-confirmed + Walmart-seller only |
 | `refresh` | int | 0 | `1` = queue priority inventory recheck (fast path) or force live pull |
+
+**Coverage vs clean:** `coverage=0` returns fewer, pickup-verified Walmart-seller deals. `coverage=1` returns every in-store markdown (incl. unverified/marketplace) with a `stock_status` badge — far higher volume, closer to DealHawk. Pilot `#5686`: `coverage=0` → ~29 deals, `coverage=1` → ~1,500 deals.
+
+### `GET /api/stock`
+
+Single-SKU stock check at a specific store.
+
+| Query | Type | Notes |
+|-------|------|-------|
+| `sku` | string | Walmart product/item id |
+| `store_id` | string | Store to check |
+| `zip` | string | Optional; inferred from store if omitted |
+
+Returns `pickup_available`, `out_of_stock`, `stock_status`, `current_price`, `was_price`, `discount_pct`, `seller_name`, `walmart_seller`.
+
+```bash
+curl "$BASE/api/stock?sku=20585870370&store_id=5686&zip=90210"
+```
 
 **Example (fast path)**
 

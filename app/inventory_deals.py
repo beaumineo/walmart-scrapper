@@ -104,18 +104,34 @@ def deals_from_inventory(
     *,
     min_discount_pct: Optional[float] = None,
     limit: int = 5000,
+    coverage: bool = False,
 ) -> Dict[str, Any]:
     """
-    Score inventory rows into deals with hard anti-clone defaults:
-    require_pickup + walmart_seller_only + drop unverified deep markdowns.
+    Score inventory rows into deals.
+
+    Default (coverage=False): hard anti-clone rules —
+      require_pickup + walmart_seller_only + drop unverified deep markdowns.
+      Fewer, cleaner, pickup-confirmed deals.
+
+    coverage=True (DealHawk-style volume): show every discounted item with a
+      stock badge instead of dropping. Does NOT require confirmed pickup and
+      keeps marketplace sellers (flagged). Much higher volume.
     """
     products = list_inventory_products(store_id, pickup_only=False, limit=limit)
     thr = DealThresholds.from_env()
-    # M4 hard rules — never surface national clones as in-store
-    thr.require_pickup = True
-    thr.prefer_pickup = True
-    thr.drop_unverified_deep_markdown = True
-    thr.walmart_seller_only = True
+    if coverage:
+        # Volume mode — surface all real markdowns, badge the stock status.
+        thr.require_pickup = False
+        thr.prefer_pickup = True
+        thr.drop_unverified_deep_markdown = False
+        thr.walmart_seller_only = False
+        thr.drop_online_only = False
+    else:
+        # Clean mode — never surface national clones as in-store.
+        thr.require_pickup = True
+        thr.prefer_pickup = True
+        thr.drop_unverified_deep_markdown = True
+        thr.walmart_seller_only = True
     if min_discount_pct is not None:
         thr.min_discount_pct = float(min_discount_pct)
 
@@ -175,10 +191,11 @@ def deals_from_inventory(
         "deal_count": len(deals),
         "price_drop_count": price_drops,
         "min_discount_pct": thr.min_discount_pct,
+        "coverage_mode": bool(coverage),
         "rules": {
-            "require_pickup": True,
-            "walmart_seller_only": True,
-            "drop_unverified_deep_markdown": True,
+            "require_pickup": thr.require_pickup,
+            "walmart_seller_only": thr.walmart_seller_only,
+            "drop_unverified_deep_markdown": thr.drop_unverified_deep_markdown,
         },
         "thresholds": thr.to_dict(),
         "deals": deals,
@@ -493,6 +510,7 @@ def build_inventory_deal_report(
     min_discount_pct: float = 20.0,
     refresh: bool = False,
     radius_miles: float = 50.0,
+    coverage: bool = False,
 ) -> Dict[str, Any]:
     """
     Milestone 5 fast path — deal report shaped like build_report, sourced from inventory DB.
@@ -522,7 +540,9 @@ def build_inventory_deal_report(
             zip_code=getattr(store_obj, "zip", None) or zip_code,
         )
 
-    inv = deals_from_inventory(sid, min_discount_pct=min_discount_pct)
+    inv = deals_from_inventory(
+        sid, min_discount_pct=min_discount_pct, coverage=coverage
+    )
     deals = list(inv.get("deals") or [])
     for d in deals:
         if not d.get("url"):
@@ -554,9 +574,10 @@ def build_inventory_deal_report(
             age_sec = None
 
     note = (
-        "Fast path: ranked deals from Phase 2 inventory DB "
-        "(pickup-confirmed + Walmart seller). "
-        "Use refresh=1 to queue a priority recheck."
+        "Coverage mode: all in-store markdowns with stock badges (DealHawk-style volume)."
+        if coverage
+        else "Fast path: pickup-confirmed + Walmart-seller deals from inventory DB. "
+        "Use coverage=1 for full volume, refresh=1 to queue a recheck."
     )
     return {
         "zip": (loc or {}).get("zip") or zip_code,
@@ -584,6 +605,7 @@ def build_inventory_deal_report(
             "price_drop_count": int(inv.get("price_drop_count") or 0),
             "inventory_count": int(inv.get("inventory_count") or 0),
             "pickup_confirmed": int(inv.get("pickup_confirmed") or 0),
+            "coverage_mode": bool(coverage),
         },
         "deals": deals,
         "meta": {
