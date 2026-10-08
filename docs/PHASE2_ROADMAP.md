@@ -25,7 +25,7 @@ Backend + hosted module that builds **store-wide inventory** for selected Walmar
 | **3** | Full-Store Collection Waves | **Done** |
 | **4** | Store-Accurate Stock and Anti-Clone | **Done** |
 | **5** | Deal Engine at Scale and API Handoff | **Done** |
-| **6** | Always-On Refresh, QA, Acceptance | Pending |
+| **6** | Always-On Refresh, QA, Acceptance | **Done** (client smoke / sign-off open) |
 
 > Note: An earlier internal draft numbered Inventory Backbone as “M1”. This doc matches **your** Phase 2 client milestones (Kickoff = M1, Backbone = M2).
 
@@ -132,16 +132,24 @@ curl "http://localhost:8000/api/deals?zip=90210&store_id=5686&min_discount_pct=2
 
 ---
 
-## Milestone 6: Always-On Refresh, QA, Acceptance
+## Milestone 6: Always-On Refresh, QA, Acceptance ✅ (implemented)
 
-- Schedulers: full wave nightly + hot departments every few hours (per agreed cadence)
-- Ops signals: last scan age, deal count, daily API burn; alert on Oxylabs auth failure
-- UI polish: “Scanned X ago · N items · M deals ≥ filter %”
-- Optional: webhook/alert when deep markdown (≥70%) appears at user’s stores
-- Test across agreed US regions/stores; fix issues inside agreed scope
-- Final acceptance against Milestone 1 checklist
+- Schedulers: full wave + hot waves on `INVENTORY_WATCH_STORES` (`app/inventory_scheduler.py`)
+- Ops: `GET /api/ops` — scan age, deals, daily API burn, auth alert, scheduler status
+- UI: “Scanned X ago · N items · M deals ≥ filter %” (`app/static/index.html`)
+- Discord: deep markdown ≥70% (`POST /api/ops/deep-alerts/check`) + auth failures
+- Acceptance checklist: `docs/ACCEPTANCE_PHASE2.md`
 
-**Deliverable:** Production-ready Phase 2 module on Railway
+```env
+INVENTORY_SCHEDULER_ENABLED=1
+INVENTORY_WATCH_STORES=5686:90210,5930:90210
+INVENTORY_FULL_INTERVAL_HOURS=24
+INVENTORY_HOT_INTERVAL_HOURS=4
+DISCORD_WEBHOOK_URL=...   # Railway secret — never commit
+```
+
+**Deliverable:** Production-ready Phase 2 module on Railway  
+**Open:** client multi-region smoke + formal sign-off
 
 ---
 

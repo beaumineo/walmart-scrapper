@@ -96,3 +96,29 @@ def notify_overlap_report(report: Dict[str, Any]) -> Dict[str, Any]:
 
 def notify_milestone(text: str) -> Dict[str, Any]:
     return notify(f"📌 {text}")
+
+
+def notify_auth_failure(detail: str) -> Dict[str, Any]:
+    return notify(
+        f"🚨 **Oxylabs auth failure**\n```{str(detail)[:800]}```\n"
+        "Check `OXYLABS_USERNAME` / `OXYLABS_PASSWORD` on Railway."
+    )
+
+
+def notify_deep_markdowns(
+    deals: list,
+    *,
+    threshold: float = 70.0,
+) -> Dict[str, Any]:
+    if not deals:
+        return {"ok": False, "skipped": True}
+    lines = [f"🔥 **Deep markdown ≥{threshold:.0f}%** ({len(deals)} new)"]
+    for d in deals[:8]:
+        title = str(d.get("title") or d.get("product_id") or "")[:80]
+        pct = d.get("discount_pct")
+        sid = d.get("store_id")
+        price = d.get("current_price")
+        lines.append(
+            f"• store `{sid}` · **{pct}%** · ${price} — {title}"
+        )
+    return notify("\n".join(lines))

@@ -759,11 +759,35 @@
     const metaEl = $("meta");
 
     function setModePill(mode) {
-      const live = String(mode || "").startsWith("live");
-      modePill.innerHTML = live
-        ? "<i></i> In-store live"
-        : `<i></i> ${mode || "ready"}`;
+      const m = String(mode || "");
+      const live = m.startsWith("live") || m === "inventory";
+      const label =
+        m === "inventory" ? "Inventory (fast)"
+        : m.startsWith("live") ? "In-store live"
+        : (mode || "ready");
+      modePill.innerHTML = `<i></i> ${label}`;
       modePill.style.borderColor = live ? "rgba(61,214,140,0.45)" : "";
+    }
+
+    function formatScanAge(sec) {
+      if (sec == null || !Number.isFinite(Number(sec))) return null;
+      const s = Math.max(0, Number(sec));
+      if (s < 60) return `${s}s ago`;
+      if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+      if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+      return `${Math.floor(s / 86400)}d ago`;
+    }
+
+    function inventoryStatusLine(meta, summary, minPct, storeName, storeId) {
+      const age = formatScanAge(meta?.cache_age_sec);
+      const items = summary?.inventory_count ?? meta?.live_product_count;
+      const deals = summary?.deal_count;
+      const bits = [];
+      if (age) bits.push(`Scanned ${age}`);
+      if (items != null) bits.push(`${items} items`);
+      if (deals != null) bits.push(`${deals} deals ≥${minPct}%`);
+      if (!bits.length) return `${storeName} (#${storeId})`;
+      return bits.join(" · ") + ` · ${storeName} (#${storeId})`;
     }
 
     function showError(msg, soft = false) {
@@ -1085,17 +1109,30 @@
         return;
       }
 
+      const meta = lastDealBag.meta || {};
+      const poolSummary = lastDealBag.summary || summary;
       summaryEl.innerHTML = `
-        <div class="stat"><span>Deals</span><b>${summary.deal_count}</b></div>
+        <div class="stat"><span>Deals ≥${minPct}%</span><b>${summary.deal_count}</b></div>
         <div class="stat"><span>Avg discount</span><b>${Number(summary.avg_discount_pct || 0).toFixed(0)}%</b></div>
         <div class="stat"><span>Best discount</span><b>${Number(summary.max_discount_pct || 0).toFixed(0)}%</b></div>
-        <div class="stat"><span>Total savings</span><b>$${Number(summary.total_savings_if_bought_all || 0).toFixed(2)}</b></div>
+        <div class="stat"><span>Scanned</span><b>${formatScanAge(meta.cache_age_sec) || (mode === "inventory" ? "inventory" : "live")}</b></div>
       `;
       dealsHead.hidden = false;
-      dealsCount.textContent = `${deals.length} deals ≥${minPct}% · ${storeName} (#${storeId})${mode === "live_cached" ? " · cached" : ""}`;
-      setModePill(mode === "live_cached" ? "in-store (cached)" : "in-store live");
+      dealsCount.textContent = inventoryStatusLine(
+        meta,
+        { ...poolSummary, deal_count: deals.length },
+        minPct,
+        storeName,
+        storeId
+      );
+      setModePill(
+        mode === "inventory" ? "inventory"
+        : mode === "live_cached" ? "in-store (cached)"
+        : "in-store live"
+      );
       dealsEl.innerHTML = renderDealCards(deals);
-      metaEl.textContent = `Store-scoped pickup deals for #${storeId} — slider filters ${lastDealBag.deals.length} live markdowns instantly.`;
+      metaEl.textContent = inventoryStatusLine(meta, poolSummary, minPct, storeName, storeId)
+        + ` — slider filters ${lastDealBag.deals.length} markdowns instantly.`;
       statusEl.textContent = `${deals.length} of ${lastDealBag.deals.length} deals ≥${minPct}% at ${storeName} (#${storeId}).`;
     }
 
@@ -1107,23 +1144,23 @@
       const minPct = Number($("minPct")?.value || 20);
       $("btnReport").disabled = true;
       setSteps(3);
-      statusEl.textContent = `Searching store #${storeId} for in-store markdowns (filter ≥${minPct}% after load)...`;
+      statusEl.textContent = `Loading deals for store #${storeId} (inventory fast path when available; filter ≥${minPct}% after load)...`;
       setModePill("searching");
       renderLoading(minPct);
       lastDealBag = null;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 300000);
       try {
-        // Pull a wide floor so the discount slider can filter client-side (DealHawk-style).
+        // Prefer inventory DB (M5/M6). Wide floor so the discount slider can filter client-side.
         const res = await fetch(
-          `/api/deals?zip=${encodeURIComponent(zip)}&store_id=${encodeURIComponent(storeId)}&min_discount_pct=${encodeURIComponent(FETCH_FLOOR_PCT)}&mode=live&refresh=1`,
+          `/api/deals?zip=${encodeURIComponent(zip)}&store_id=${encodeURIComponent(storeId)}&min_discount_pct=${encodeURIComponent(FETCH_FLOOR_PCT)}&mode=auto`,
           { signal: ctrl.signal }
         );
         const data = await res.json();
         if (!res.ok) throw new Error(errText(data.detail) || "Report failed");
 
         const mode = data.meta?.data_mode || "failed";
-        const liveOk = data.meta?.live_ok === true;
+        const liveOk = data.meta?.live_ok === true || mode === "inventory";
         const userErr = data.meta?.user_error;
         const deals = Array.isArray(data.deals) ? data.deals : [];
         const storeName = data.store?.name || `Store #${storeId}`;
@@ -1167,7 +1204,14 @@
           return;
         }
 
-        lastDealBag = { deals, storeId, storeName, mode, meta: data.meta || {} };
+        lastDealBag = {
+          deals,
+          storeId,
+          storeName,
+          mode,
+          meta: data.meta || {},
+          summary: data.summary || {},
+        };
         applyDiscountFilter();
       } catch (e) {
         let msg = e.message || "Search failed";

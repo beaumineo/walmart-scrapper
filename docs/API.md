@@ -176,7 +176,19 @@ python scripts/run_inventory_verify.py --store-id 5686 --max-verify 20
 python scripts/run_inventory_verify.py --overlap 5686 5930
 ```
 
-Discord updates (Milestone 1): set `DISCORD_WEBHOOK_URL` — scan completions post automatically.
+Discord updates (Milestone 1/6): set `DISCORD_WEBHOOK_URL` — scan completions, auth failures, and ≥70% deep markdowns post automatically.
+
+### `GET /api/ops`
+
+Ops dashboard: watched stores, scan age, deal counts, daily API burn, scheduler status.
+
+### `POST /api/ops/scheduler/tick`
+
+Run one scheduler pass now (starts due full/hot waves).
+
+### `POST /api/ops/deep-alerts/check`
+
+Find new ≥70% pickup deals on watched stores and Discord-alert them.
 
 ## `GET /health`
 

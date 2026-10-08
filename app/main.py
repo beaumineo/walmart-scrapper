@@ -27,7 +27,7 @@ app = FastAPI(
         "`GET /api/deals?zip=&store_id=&min_discount_pct=`.\n\n"
         "Live pulls are store-scoped (Oxylabs). Docs: `/docs`, `docs/API.md`, `docs/HANDOFF.md`."
     ),
-    version="1.4.0",
+    version="1.5.0",
     contact={"name": "Hidden Clearances Walmart module"},
 )
 
@@ -57,6 +57,13 @@ def _warmup() -> None:
 
         load_official_stores()
         get_db().close()
+    except Exception:
+        pass
+    # Milestone 6 — always-on refresh (no-op unless INVENTORY_SCHEDULER_ENABLED=1)
+    try:
+        from inventory_scheduler import start_scheduler
+
+        start_scheduler()
     except Exception:
         pass
 
@@ -98,9 +105,9 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "1.4.0",
+        "version": "1.5.0",
         "milestone": 5,
-        "phase2_milestone": 5,
+        "phase2_milestone": 6,
         "milestones_complete": [0, 1, 2, 3, 4, 5],
         "proxy_count": len(cfg.proxies),
         "engine": cfg.collect_engine,
@@ -121,7 +128,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.4.0-phase2-m5-inventory-fast-path",
+            "build": "1.5.0-phase2-m6-always-on",
         },
     }
 
@@ -673,3 +680,43 @@ def api_inventory_overlap(
     return compare_store_overlap(
         store_a, store_b, min_discount_pct=min_discount_pct
     )
+
+
+@app.get(
+    "/api/ops",
+    tags=["ops"],
+    dependencies=[Depends(require_api_key)],
+    summary="Phase 2 ops dashboard (scan age, deals, API burn, scheduler)",
+)
+def api_ops_status():
+    from ops_status import build_ops_status
+
+    return build_ops_status()
+
+
+@app.post(
+    "/api/ops/scheduler/tick",
+    tags=["ops"],
+    dependencies=[Depends(require_api_key)],
+    summary="Run one scheduler tick now (full/hot due waves)",
+)
+def api_ops_scheduler_tick(request: Request, response: Response):
+    for k, v in enforce_rate_limit(request).items():
+        response.headers[k] = v
+    from inventory_scheduler import run_scheduler_once
+
+    return {"ok": True, "scheduler": run_scheduler_once()}
+
+
+@app.post(
+    "/api/ops/deep-alerts/check",
+    tags=["ops"],
+    dependencies=[Depends(require_api_key)],
+    summary="Scan watched stores for ≥70% markdown and Discord-alert new ones",
+)
+def api_ops_deep_alerts(request: Request, response: Response):
+    for k, v in enforce_rate_limit(request).items():
+        response.headers[k] = v
+    from deep_alerts import check_and_alert_deep_markdowns
+
+    return check_and_alert_deep_markdowns()

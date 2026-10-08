@@ -570,6 +570,13 @@ def run_inventory_scan(scan_id: int, postal_code: Optional[str] = None) -> Dict[
         notify_scan_finished(final)
     except Exception:
         pass
+    if final.get("status") == "completed":
+        try:
+            from deep_alerts import check_and_alert_deep_markdowns
+
+            check_and_alert_deep_markdowns()
+        except Exception:
+            pass
     return final
 
 
