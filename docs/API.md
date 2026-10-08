@@ -141,13 +141,33 @@ Store summary: inventory count, markdown candidates, last successful scan.
 
 SKU coverage report: counts, markdown ≥40%, sources, recent waves.
 
+### `GET /api/inventory/stores/{store_id}/deals?min_discount_pct=20`
+
+Deals from inventory DB — **pickup confirmed + Walmart seller only** (Milestone 4 anti-clone).
+
+### `POST /api/inventory/verify`
+
+```json
+{ "store_id": "5686", "zip": "90210", "max_verify": 40 }
+```
+
+Product-level pickup verify for unverified markdowns; writes back to inventory.
+
+### `GET /api/inventory/overlap?store_a=5686&store_b=5930`
+
+SKU / pickup / deal-list overlap metrics (`anti_clone_ok` when deal overlap &lt; 55%).
+
 CLI:
 
 ```bash
 set PYTHONPATH=app
 python scripts/run_inventory_scan.py --store-id 5686 --zip 90210 --wave A --max-queries 12 --sync
 python scripts/run_inventory_scan.py --store-id 5686 --coverage
+python scripts/run_inventory_verify.py --store-id 5686 --max-verify 20
+python scripts/run_inventory_verify.py --overlap 5686 5930
 ```
+
+Discord updates (Milestone 1): set `DISCORD_WEBHOOK_URL` — scan completions post automatically.
 
 ## `GET /health`
 

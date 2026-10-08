@@ -27,7 +27,7 @@ app = FastAPI(
         "`GET /api/deals?zip=&store_id=&min_discount_pct=`.\n\n"
         "Live pulls are store-scoped (Oxylabs). Docs: `/docs`, `docs/API.md`, `docs/HANDOFF.md`."
     ),
-    version="1.2.0",
+    version="1.3.0",
     contact={"name": "Hidden Clearances Walmart module"},
 )
 
@@ -98,9 +98,9 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "1.2.0",
+        "version": "1.3.0",
         "milestone": 5,
-        "phase2_milestone": 3,
+        "phase2_milestone": 4,
         "milestones_complete": [0, 1, 2, 3, 4, 5],
         "proxy_count": len(cfg.proxies),
         "engine": cfg.collect_engine,
@@ -121,7 +121,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.2.0-phase2-m3-full-store-waves",
+            "build": "1.3.0-phase2-m4-anti-clone",
         },
     }
 
@@ -565,3 +565,68 @@ def api_inventory_coverage(store_id: str):
     from inventory_scan import get_coverage_report
 
     return get_coverage_report(store_id)
+
+
+@app.get(
+    "/api/inventory/stores/{store_id}/deals",
+    tags=["phase2"],
+    dependencies=[Depends(require_api_key)],
+    summary="Deals from inventory DB (pickup + Walmart-seller only)",
+)
+def api_inventory_deals(
+    store_id: str,
+    min_discount_pct: float = Query(20, ge=0, le=95),
+    limit: int = Query(200, ge=1, le=2000),
+):
+    from inventory_deals import deals_from_inventory
+
+    result = deals_from_inventory(store_id, min_discount_pct=min_discount_pct)
+    deals = result.get("deals") or []
+    result["deals"] = deals[:limit]
+    result["returned"] = len(result["deals"])
+    return result
+
+
+class InventoryVerifyRequest(BaseModel):
+    store_id: str = Field(..., min_length=1, max_length=32)
+    zip: Optional[str] = Field(None, min_length=3, max_length=10)
+    max_verify: Optional[int] = Field(40, ge=1, le=200)
+
+
+@app.post(
+    "/api/inventory/verify",
+    tags=["phase2"],
+    dependencies=[Depends(require_api_key)],
+    summary="Product-level pickup verify for inventory markdowns (M4)",
+)
+def api_inventory_verify(body: InventoryVerifyRequest, request: Request, response: Response):
+    for k, v in enforce_rate_limit(request).items():
+        response.headers[k] = v
+    from inventory_deals import verify_store_pickup
+
+    try:
+        return verify_store_pickup(
+            body.store_id,
+            zip_code=body.zip,
+            max_verify=body.max_verify,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Pickup verify failed: {e}") from e
+
+
+@app.get(
+    "/api/inventory/overlap",
+    tags=["phase2"],
+    dependencies=[Depends(require_api_key)],
+    summary="Store A vs B overlap metrics (anti-clone)",
+)
+def api_inventory_overlap(
+    store_a: str = Query(...),
+    store_b: str = Query(...),
+    min_discount_pct: float = Query(20, ge=0, le=95),
+):
+    from inventory_deals import compare_store_overlap
+
+    return compare_store_overlap(
+        store_a, store_b, min_discount_pct=min_discount_pct
+    )

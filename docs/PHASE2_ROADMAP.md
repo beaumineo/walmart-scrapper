@@ -20,10 +20,10 @@ Backend + hosted module that builds **store-wide inventory** for selected Walmar
 
 | Client milestone | Name | Status |
 |------------------|------|--------|
-| **1** | Kickoff and Specs (deposit 30%) | Pending client sign-off |
-| **2** | Inventory Backbone | **Done in code** (SQLite now; Supabase optional next) |
-| **3** | Full-Store Collection Waves | Next |
-| **4** | Store-Accurate Stock and Anti-Clone | Pending |
+| **1** | Kickoff and Specs (deposit 30%) | Specs open; **Discord** for updates (`DISCORD_WEBHOOK_URL`) |
+| **2** | Inventory Backbone | **Done** (SQLite; Supabase optional next) |
+| **3** | Full-Store Collection Waves | **Done** |
+| **4** | Store-Accurate Stock and Anti-Clone | **In progress / shipping** |
 | **5** | Deal Engine at Scale and API Handoff | Pending |
 | **6** | Always-On Refresh, QA, Acceptance | Pending |
 
@@ -38,7 +38,9 @@ Backend + hosted module that builds **store-wide inventory** for selected Walmar
 - Agree monthly Oxylabs ceiling and hard budget cap
 - Agree API additions (scan status, deals-from-DB, optional webhooks)
 - Agree success criteria (pilot store/ZIP, target deal volume, cross-store lists must differ)
-- Shared Discord / Slack / Telegram / email for updates
+- Shared channel for updates → **Discord webhook** (`DISCORD_WEBHOOK_URL`)
+  - Posts when inventory scans finish; optional overlap / verify notices
+  - Paste your channel webhook into Railway / `.env` (never commit the secret)
 
 **Deliverable:** 1-page Phase 2 requirements both sides approve
 
@@ -95,14 +97,22 @@ python scripts/run_inventory_scan.py --store-id 5686 --coverage
 
 ---
 
-## Milestone 4: Store-Accurate Stock and Anti-Clone
+## Milestone 4: Store-Accurate Stock and Anti-Clone ✅ (implemented)
 
-- Product-level pickup verify at selected store only
+- Product-level pickup verify at selected store only (`POST /api/inventory/verify`)
+- Deals from inventory: pickup-confirmed + Walmart-seller only (`GET …/deals`)
 - Never show national “unconfirmed” clones as in-store deals
-- Walmart-seller rules; drop marketplace 3P junk that repeats every ZIP
-- Log overlap metrics (store A vs store B)
+- Drop marketplace 3P junk that repeats every ZIP
+- Overlap metrics store A vs B (`GET /api/inventory/overlap`)
 
-**Deliverable:** Deals for store A are not a copy of store B; pilot comparison doc
+```bash
+set PYTHONPATH=app
+python scripts/run_inventory_verify.py --store-id 5686 --max-verify 20
+python scripts/run_inventory_verify.py --store-id 5686 --deals
+python scripts/run_inventory_verify.py --overlap 5686 5930
+```
+
+**Deliverable:** Deals for store A are not a copy of store B; pilot comparison doc (`docs/PHASE2_M4_PILOT.md`)
 
 ---
 

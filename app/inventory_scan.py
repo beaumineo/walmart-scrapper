@@ -563,7 +563,14 @@ def run_inventory_scan(scan_id: int, postal_code: Optional[str] = None) -> Dict[
         with _lock:
             _active_threads.pop(int(scan_id), None)
 
-    return get_scan_status(scan_id)
+    final = get_scan_status(scan_id)
+    try:
+        from discord_notify import notify_scan_finished
+
+        notify_scan_finished(final)
+    except Exception:
+        pass
+    return final
 
 
 def get_scan_status(scan_id: int) -> Dict[str, Any]:
