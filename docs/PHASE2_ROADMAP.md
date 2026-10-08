@@ -23,8 +23,8 @@ Backend + hosted module that builds **store-wide inventory** for selected Walmar
 | **1** | Kickoff and Specs (deposit 30%) | Specs open; **Discord** for updates (`DISCORD_WEBHOOK_URL`) |
 | **2** | Inventory Backbone | **Done** (SQLite; Supabase optional next) |
 | **3** | Full-Store Collection Waves | **Done** |
-| **4** | Store-Accurate Stock and Anti-Clone | **In progress / shipping** |
-| **5** | Deal Engine at Scale and API Handoff | Pending |
+| **4** | Store-Accurate Stock and Anti-Clone | **Done** |
+| **5** | Deal Engine at Scale and API Handoff | **Done** |
 | **6** | Always-On Refresh, QA, Acceptance | Pending |
 
 > Note: An earlier internal draft numbered Inventory Backbone as “M1”. This doc matches **your** Phase 2 client milestones (Kickoff = M1, Backbone = M2).
@@ -116,15 +116,19 @@ python scripts/run_inventory_verify.py --overlap 5686 5930
 
 ---
 
-## Milestone 5: Deal Engine at Scale and API Handoff
+## Milestone 5: Deal Engine at Scale and API Handoff ✅ (implemented)
 
-- Extend deal scoring/filter (markdown %, clearance/hidden clearance, rank, tunable thresholds)
-- Price history: detect drops vs prior scan
-- Fast path: `/api/deals` reads inventory DB for selected store; optional `refresh=1` priority re-scan
-- Docs: auth, request/response examples, rate limits, Railway/env knobs
+- Deal scoring/filter via `deal_engine` + inventory rules (markdown %, clearance/hidden clearance, rank, `DEAL_*` knobs)
+- Price history: `inv_price_history` + `price_dropped` / `drop_amount` on deals
+- Fast path: `GET /api/deals?mode=auto|inventory` reads inventory DB; `refresh=1` queues priority verify + Wave D
+- Docs: `docs/API.md`, `docs/HANDOFF.md` (auth, examples, rate limits, Railway env)
 
-**Deliverable:** Documented API + deals served from inventory DB (fast path)  
-*(Note: your draft accidentally repeated M4’s deliverable here — corrected above.)*
+```bash
+# Fast path (needs prior inventory scan)
+curl "http://localhost:8000/api/deals?zip=90210&store_id=5686&min_discount_pct=20&mode=inventory"
+```
+
+**Deliverable:** Documented API + deals served from inventory DB (fast path)
 
 ---
 

@@ -13,7 +13,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Set
 
 from deal_engine import DealThresholds, detect_deals
-from inventory_db import get_inventory_db, get_store, upsert_inventory_items
+from inventory_db import (
+    get_inventory_db,
+    get_store,
+    inventory_counts,
+    prior_prices_map,
+    upsert_inventory_items,
+)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -114,6 +120,44 @@ def deals_from_inventory(
         thr.min_discount_pct = float(min_discount_pct)
 
     deals = detect_deals(str(store_id), products, thresholds=thr)
+    priors = prior_prices_map(
+        str(store_id), [str(d.get("product_id")) for d in deals]
+    )
+    price_drops = 0
+    for d in deals:
+        pid = str(d.get("product_id") or "")
+        prior = priors.get(pid) or {}
+        prior_price = prior.get("prior_price")
+        cur = d.get("current_price")
+        d["prior_price"] = prior_price
+        d["prior_scraped_at"] = prior.get("prior_scraped_at")
+        d["price_dropped"] = False
+        d["drop_amount"] = None
+        try:
+            if prior_price is not None and cur is not None:
+                pp = float(prior_price)
+                cc = float(cur)
+                if pp - cc >= 0.01:
+                    drop = round(pp - cc, 2)
+                    d["price_dropped"] = True
+                    d["drop_amount"] = drop
+                    price_drops += 1
+                    why = str(d.get("why_deal") or "")
+                    bit = f"price dropped ${drop:.2f} since last scan"
+                    d["why_deal"] = f"{why}; {bit}" if why else bit
+                    # Boost rank for fresh drops
+                    d["rank_score"] = round(float(d.get("rank_score") or 0) + 12.0, 2)
+        except (TypeError, ValueError):
+            pass
+
+    deals.sort(
+        key=lambda x: (
+            0 if x.get("price_dropped") else 1,
+            -float(x.get("rank_score") or 0),
+            -float(x.get("discount_pct") or 0),
+        )
+    )
+
     pickup_n = sum(1 for p in products if p.get("pickup_available") is True)
     unverified = sum(1 for p in products if p.get("pickup_available") is not True)
     third_party = 0
@@ -129,13 +173,18 @@ def deals_from_inventory(
         "unverified_or_ship": unverified,
         "third_party_seller_rows": third_party,
         "deal_count": len(deals),
+        "price_drop_count": price_drops,
         "min_discount_pct": thr.min_discount_pct,
         "rules": {
             "require_pickup": True,
             "walmart_seller_only": True,
             "drop_unverified_deep_markdown": True,
         },
+        "thresholds": thr.to_dict(),
         "deals": deals,
+        "last_inventory_update": inventory_counts(str(store_id)).get(
+            "last_inventory_update"
+        ),
     }
 
 
@@ -386,4 +435,179 @@ def verify_store_pickup(
         "pickup_false": pickup_false,
         "failed": failed,
         "unresolved": len(need) - pickup_true - pickup_false - failed,
+    }
+
+
+def store_has_inventory(store_id: str, *, min_skus: int = 1) -> bool:
+    counts = inventory_counts(str(store_id))
+    return int(counts.get("inventory_count") or 0) >= int(min_skus)
+
+
+def queue_priority_refresh(
+    store_id: str,
+    zip_code: Optional[str] = None,
+    *,
+    recheck_limit: int = 20,
+) -> Dict[str, Any]:
+    """Background Wave D recheck + light verify (refresh=1 on fast path)."""
+    import threading
+
+    sid = str(store_id)
+    postal = zip_code
+    if not postal:
+        st = get_store(sid)
+        postal = (st or {}).get("zip")
+
+    started: Dict[str, Any] = {"verify": False, "scan": None}
+
+    def _bg() -> None:
+        try:
+            verify_store_pickup(sid, zip_code=postal, max_verify=min(20, recheck_limit))
+        except Exception:
+            pass
+        try:
+            from inventory_scan import start_inventory_scan
+
+            start_inventory_scan(
+                store_id=sid,
+                zip_code=postal,
+                wave="D",
+                recheck_limit=recheck_limit,
+                background=True,
+            )
+        except Exception:
+            pass
+
+    threading.Thread(target=_bg, name=f"inv-refresh-{sid}", daemon=True).start()
+    started["verify"] = True
+    started["queued"] = True
+    return started
+
+
+def build_inventory_deal_report(
+    zip_code: str,
+    store_id: str,
+    *,
+    store: Optional[Any] = None,
+    location: Optional[Dict[str, Any]] = None,
+    min_discount_pct: float = 20.0,
+    refresh: bool = False,
+    radius_miles: float = 50.0,
+) -> Dict[str, Any]:
+    """
+    Milestone 5 fast path — deal report shaped like build_report, sourced from inventory DB.
+    """
+    import time
+    from urllib.parse import quote
+
+    sid = str(store_id)
+    loc = location
+    store_obj = store
+    if store_obj is None or loc is None:
+        from walmart_core import find_stores_near_zip
+
+        loc2, stores = find_stores_near_zip(zip_code, radius_miles=radius_miles)
+        loc = loc or loc2
+        if store_obj is None:
+            store_obj = next((s for s in stores if str(s.store_id) == sid), None)
+        if store_obj is None:
+            raise ValueError(
+                f"Store '{store_id}' not found for ZIP {zip_code}. Call /stores first."
+            )
+
+    refresh_meta: Optional[Dict[str, Any]] = None
+    if refresh:
+        refresh_meta = queue_priority_refresh(
+            sid,
+            zip_code=getattr(store_obj, "zip", None) or zip_code,
+        )
+
+    inv = deals_from_inventory(sid, min_discount_pct=min_discount_pct)
+    deals = list(inv.get("deals") or [])
+    for d in deals:
+        if not d.get("url"):
+            pid = d.get("product_id")
+            q = quote(str(d.get("title") or "walmart"))
+            d["url"] = (
+                f"https://www.walmart.com/ip/{pid}"
+                if pid and str(pid).isdigit()
+                else f"https://www.walmart.com/search?q={q}"
+            )
+        d["min_discount_pct"] = float(min_discount_pct)
+        d["source"] = "inventory_db"
+
+    store_dict = (
+        store_obj.to_dict()
+        if hasattr(store_obj, "to_dict")
+        else dict(getattr(store_obj, "__dict__", {}) or {})
+    )
+    counts = inventory_counts(sid)
+    age_sec = None
+    last_upd = counts.get("last_inventory_update")
+    if last_upd:
+        try:
+            from datetime import datetime, timezone
+
+            ts = datetime.fromisoformat(str(last_upd).replace("Z", "+00:00"))
+            age_sec = max(0, int((datetime.now(timezone.utc) - ts).total_seconds()))
+        except Exception:
+            age_sec = None
+
+    note = (
+        "Fast path: ranked deals from Phase 2 inventory DB "
+        "(pickup-confirmed + Walmart seller). "
+        "Use refresh=1 to queue a priority recheck."
+    )
+    return {
+        "zip": (loc or {}).get("zip") or zip_code,
+        "location": {
+            "city": (loc or {}).get("city"),
+            "state": (loc or {}).get("state"),
+            "lat": (loc or {}).get("lat"),
+            "lon": (loc or {}).get("lon"),
+        },
+        "store": store_dict,
+        "summary": {
+            "deal_count": len(deals),
+            "avg_discount_pct": round(
+                sum(float(d.get("discount_pct") or 0) for d in deals) / len(deals), 1
+            )
+            if deals
+            else 0,
+            "max_discount_pct": max(
+                (float(d.get("discount_pct") or 0) for d in deals), default=0
+            ),
+            "total_savings_if_bought_all": round(
+                sum(float(d.get("savings") or 0) for d in deals), 2
+            ),
+            "min_discount_pct": min_discount_pct,
+            "price_drop_count": int(inv.get("price_drop_count") or 0),
+            "inventory_count": int(inv.get("inventory_count") or 0),
+            "pickup_confirmed": int(inv.get("pickup_confirmed") or 0),
+        },
+        "deals": deals,
+        "meta": {
+            "data_mode": "inventory",
+            "live_ok": True,
+            "user_error": None,
+            "store_source": store_dict.get("source") or "inventory",
+            "collector_notes": (
+                f"inventory_db skus={inv.get('inventory_count')} "
+                f"pickup={inv.get('pickup_confirmed')} "
+                f"drops={inv.get('price_drop_count')}"
+            ),
+            "live_product_count": int(inv.get("pickup_confirmed") or 0),
+            "cache_age_sec": age_sec,
+            "scan_id": None,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "note": note,
+            "deal_thresholds": inv.get("thresholds") or {},
+            "milestone": 5,
+            "phase2_milestone": 5,
+            "source": "inventory_db",
+            "last_inventory_update": last_upd,
+            "refresh_queued": bool(refresh_meta),
+            "refresh": refresh_meta,
+            "rules": inv.get("rules"),
+        },
     }

@@ -1,7 +1,8 @@
-# API Reference (Milestone 4)
+# API Reference (Phase 2 · Milestone 5)
 
 Base URL (production): `https://walmart-scrapper-production.up.railway.app`  
-Interactive docs: `/docs` (Swagger) · `/redoc`
+Interactive docs: `/docs` (Swagger) · `/redoc`  
+Handoff: `docs/HANDOFF.md`
 
 ## Auth (optional)
 
@@ -34,10 +35,12 @@ Set `RATE_LIMIT_PER_MIN=0` to disable. Responses include:
 ```text
 1) GET /api/stores?zip=90210
 2) pick stores[].store_id
-3) GET /api/deals?zip=90210&store_id=5686&min_discount_pct=20&mode=live
+3) Ensure store scanned: POST /api/inventory/scans  (once / on schedule)
+4) GET /api/deals?zip=90210&store_id=5686&min_discount_pct=20&mode=auto
 ```
 
-Use a **client timeout ≥ 120 seconds** for `/api/deals` (Oxylabs live pulls are often 20–90s).
+- **Fast path (`auto`/`inventory`):** usually &lt;1s once inventory exists.  
+- **Live path (`mode=live`):** Oxylabs sweep — client timeout ≥ **180s**.
 
 ---
 
@@ -67,13 +70,14 @@ See `docs/examples/stores_90210.json`.
 | `store_id` | string | required | From `/api/stores` |
 | `min_discount_pct` | float | 20 | Hard floor on discount % |
 | `radius_miles` | float | 50 | Store must be near ZIP |
-| `mode` | string | `live` | `live` or `auto` (both prefer live) |
+| `mode` | string | `auto` | `auto` · `inventory` · `live` |
+| `refresh` | int | 0 | `1` = queue priority inventory recheck (fast path) or force live pull |
 
-**Example**
+**Example (fast path)**
 
 ```bash
-curl --max-time 120 \
-  "https://HOST/api/deals?zip=90210&store_id=5686&min_discount_pct=20&mode=live"
+curl --max-time 30 \
+  "https://HOST/api/deals?zip=90210&store_id=5686&min_discount_pct=20&mode=auto"
 ```
 
 Important response fields:
@@ -81,13 +85,18 @@ Important response fields:
 | Path | Meaning |
 |------|---------|
 | `summary.deal_count` | Number of ranked deals |
-| `deals[].why_deal` | Human reason (M3) |
+| `summary.price_drop_count` | Deals cheaper than prior inventory snapshot |
+| `deals[].why_deal` | Human reason |
 | `deals[].rank_score` | Sort key (higher = better) |
 | `deals[].deal_type` | `hidden_clearance` / `clearance` / `rollback` / `markdown` |
-| `meta.data_mode` | `live` / `live_cached` / `failed` / `setup_required` |
-| `meta.live_ok` | `true` when store-scoped live (or fresh cache) succeeded |
-| `meta.deal_thresholds` | Active M3 thresholds |
-| `meta.milestone` | Engine milestone stamp |
+| `deals[].price_dropped` | `true` if current &lt; prior scan price |
+| `deals[].pickup_available` | Always `true` on inventory path |
+| `meta.data_mode` | `inventory` / `live` / `live_cached` / `failed` / … |
+| `meta.source` | `inventory_db` on fast path |
+| `meta.cache_age_sec` | Seconds since last inventory update |
+| `meta.refresh_queued` | `true` when `refresh=1` kicked a background recheck |
+| `meta.deal_thresholds` | Active `DEAL_*` thresholds |
+| `meta.phase2_milestone` | `5` on inventory fast path |
 
 See `docs/examples/deals_90210_5686.json`.
 

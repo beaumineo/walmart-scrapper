@@ -93,6 +93,19 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_inv_inventory_updated
             ON inv_store_inventory(store_id, updated_at);
 
+        CREATE TABLE IF NOT EXISTS inv_price_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            store_id TEXT NOT NULL,
+            product_id TEXT NOT NULL,
+            current_price REAL,
+            list_price REAL,
+            was_price REAL,
+            pickup_available INTEGER,
+            scraped_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_inv_price_hist
+            ON inv_price_history(store_id, product_id, id DESC);
+
         CREATE TABLE IF NOT EXISTS inv_scan_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             store_id TEXT NOT NULL,
@@ -239,6 +252,41 @@ def upsert_inventory_items(
                     return 0
                 return None
 
+            new_price = p.get("current_price")
+            old = conn.execute(
+                """
+                SELECT current_price, list_price, was_price, pickup_available
+                FROM inv_store_inventory
+                WHERE store_id = ? AND product_id = ?
+                """,
+                (sid, pid),
+            ).fetchone()
+            # Snapshot prior price when it changes (Milestone 5 price history)
+            if old is not None and new_price is not None:
+                try:
+                    old_p = float(old["current_price"]) if old["current_price"] is not None else None
+                    new_p = float(new_price)
+                except (TypeError, ValueError):
+                    old_p, new_p = None, None
+                if old_p is not None and new_p is not None and abs(old_p - new_p) >= 0.01:
+                    conn.execute(
+                        """
+                        INSERT INTO inv_price_history (
+                            store_id, product_id, current_price, list_price, was_price,
+                            pickup_available, scraped_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            sid,
+                            pid,
+                            old["current_price"],
+                            old["list_price"],
+                            old["was_price"],
+                            old["pickup_available"],
+                            now,
+                        ),
+                    )
+
             conn.execute(
                 """
                 INSERT INTO inv_store_inventory (
@@ -288,6 +336,42 @@ def upsert_inventory_items(
     finally:
         conn.close()
     return n
+
+
+def prior_prices_map(store_id: str, product_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Latest prior snapshot per product (for price-drop detection)."""
+    sid = str(store_id)
+    pids = [str(p) for p in product_ids if p]
+    if not pids:
+        return {}
+    conn = get_inventory_db()
+    try:
+        out: Dict[str, Dict[str, Any]] = {}
+        # SQLite variable limit — chunk
+        for i in range(0, len(pids), 400):
+            chunk = pids[i : i + 400]
+            placeholders = ",".join("?" * len(chunk))
+            rows = conn.execute(
+                f"""
+                SELECT h.product_id, h.current_price, h.scraped_at
+                FROM inv_price_history h
+                INNER JOIN (
+                    SELECT product_id, MAX(id) AS mid
+                    FROM inv_price_history
+                    WHERE store_id = ? AND product_id IN ({placeholders})
+                    GROUP BY product_id
+                ) t ON h.id = t.mid
+                """,
+                (sid, *chunk),
+            ).fetchall()
+            for r in rows:
+                out[str(r["product_id"])] = {
+                    "prior_price": r["current_price"],
+                    "prior_scraped_at": r["scraped_at"],
+                }
+        return out
+    finally:
+        conn.close()
 
 
 def create_scan_run(

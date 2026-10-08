@@ -27,7 +27,7 @@ app = FastAPI(
         "`GET /api/deals?zip=&store_id=&min_discount_pct=`.\n\n"
         "Live pulls are store-scoped (Oxylabs). Docs: `/docs`, `docs/API.md`, `docs/HANDOFF.md`."
     ),
-    version="1.3.0",
+    version="1.4.0",
     contact={"name": "Hidden Clearances Walmart module"},
 )
 
@@ -98,9 +98,9 @@ def health():
         "official_store_count": store_count,
         "street_geocode_count": geo_ok,
         "proxy_enabled": cfg.proxy_enabled,
-        "version": "1.3.0",
+        "version": "1.4.0",
         "milestone": 5,
-        "phase2_milestone": 4,
+        "phase2_milestone": 5,
         "milestones_complete": [0, 1, 2, 3, 4, 5],
         "proxy_count": len(cfg.proxies),
         "engine": cfg.collect_engine,
@@ -121,7 +121,7 @@ def health():
                     or os.environ.get("RAILWAY_PROJECT_ID")
                 )
             ),
-            "build": "1.3.0-phase2-m4-anti-clone",
+            "build": "1.4.0-phase2-m5-inventory-fast-path",
         },
     }
 
@@ -358,26 +358,69 @@ def api_deals(
     store_id: str = Query(...),
     radius_miles: float = Query(50, ge=1, le=100),
     min_discount_pct: float = Query(20, ge=0, le=95),
-    mode: str = Query("live", pattern="^(auto|live)$"),
-    refresh: int = Query(0, ge=0, le=1, description="1 = bypass short cache, force live pull"),
+    mode: str = Query(
+        "auto",
+        pattern="^(auto|live|inventory)$",
+        description="auto=inventory DB when scanned, else live; inventory=DB only; live=Oxylabs pull",
+    ),
+    refresh: int = Query(
+        0,
+        ge=0,
+        le=1,
+        description="1 = queue priority inventory recheck (fast path) or force live pull",
+    ),
 ):
     """
     In-store deal report for the selected Walmart store.
 
-    Always prefers live store-scoped collection (no demo / sample catalog).
-    Returns markdown / clearance / hidden-clearance deals only (M3).
-    Live Oxylabs pulls often take 30–90 seconds (parallel multi-query USA store sweep) — use a client timeout ≥ 180s.
+    Milestone 5 fast path: `mode=auto|inventory` serves deals from the inventory DB
+    (pickup-confirmed + Walmart seller). `refresh=1` queues a background recheck and
+    still returns current DB deals immediately.
+
+    `mode=live` runs a full Oxylabs store sweep (often 30–90s — client timeout ≥ 180s).
     """
     for k, v in enforce_rate_limit(request).items():
         response.headers[k] = v
-    prefer_live = True
+
+    use_inventory = mode in ("auto", "inventory")
+    if use_inventory:
+        try:
+            from inventory_deals import build_inventory_deal_report, store_has_inventory
+
+            if mode == "inventory" or store_has_inventory(store_id):
+                return build_inventory_deal_report(
+                    zip_code=zip,
+                    store_id=store_id,
+                    min_discount_pct=min_discount_pct,
+                    refresh=bool(refresh),
+                    radius_miles=radius_miles,
+                )
+            if mode == "inventory":
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"No inventory for store {store_id}. "
+                        "Run POST /api/inventory/scans first."
+                    ),
+                )
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        except Exception as e:
+            if mode == "inventory":
+                raise HTTPException(
+                    status_code=502, detail=f"Inventory deals failed: {e}"
+                ) from e
+            # auto: fall through to live
+
     try:
         return build_report(
             zip_code=zip,
             store_id=store_id,
             radius_miles=radius_miles,
             min_discount_pct=min_discount_pct,
-            prefer_live=prefer_live,
+            prefer_live=True,
             force_refresh=bool(refresh),
         )
     except ValueError as e:
